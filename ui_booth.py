@@ -2,24 +2,22 @@ import os, sys
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets, QtGui
 
-import cv2, time, uuid, json
+import cv2, time
 from PIL import Image
 
 from compose import compose_receipt_two_photos
-from supaupload import supa_upload
-from printer_io import print_image_usb 
+from printer_io import print_image_usb
 
 # ===== 고정값 / 기본값 =====
-VIEW_HTML_PUBLIC = "https://kanghangyeol.github.io/doit-view/view.html"
-LOGO_PUBLIC_URL  = "https://qzcfjssimpxniwibxxit.supabase.co/storage/v1/object/public/assets/Doit_logo.jpeg"
-
-INSTAGRAM_URL       = "https://instagram.com/ajou_doit"
 DEFAULT_SHORT_TEXT  = "JUST Do-IT!"
-DEFAULT_FONT_PATH   = "/System/Library/Fonts/AppleSDGothicNeo.ttc"  # macOS
+DEFAULT_FONT_PATH   = "/System/Library/Fonts/AppleSDGothicNeo.ttc"  # macOS 기본
+if sys.platform.startswith("win"):
+    DEFAULT_FONT_PATH = r"C:\Windows\Fonts\malgun.ttf"
+elif sys.platform.startswith("linux"):
+    DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 # 영수증(프린트 합성) 레이아웃 (80mm 고정)
 PAPER_WIDTH         = 576           # 80mm
-QR_MAX_W            = 160
 DEFAULT_MARGIN      = 7
 DEFAULT_GAP         = 4
 DEFAULT_PHOTO_GAP   = 8
@@ -28,13 +26,9 @@ DEFAULT_LETTERBOX   = 0
 DEFAULT_LOGO_MAX_H  = 160
 
 # --- 환경변수로 덮어쓰기(있는 경우에만) ---
-_env_view = os.getenv("VIEW_URL")
-if _env_view:
-    VIEW_HTML_PUBLIC = _env_view
-
-_env_logo = os.getenv("LOGO_PUBLIC_URL")
-if _env_logo:
-    LOGO_PUBLIC_URL = _env_logo
+_env_font = os.getenv("FONT_PATH")
+if _env_font:
+    DEFAULT_FONT_PATH = _env_font
 
 def open_capture(idx: int):
     """카메라 캡처 오픈 (macOS는 AVFoundation 고정)."""
@@ -44,17 +38,6 @@ def open_capture(idx: int):
     if sys.platform.startswith("win"):
         return cv2.VideoCapture(idx, cv2.CAP_DSHOW)
     return cv2.VideoCapture(idx)
-
-def _upload_with_type(local_path: Path, object_path: str, content_type: str | None):
-    """
-    supa_upload가 content_type 파라미터를 지원하지 않는 구버전일 수 있어
-    TypeError 시 content_type 없이 재호출.
-    """
-    lp = str(local_path)
-    try:
-        return supa_upload(lp, object_path, content_type=content_type)
-    except TypeError:
-        return supa_upload(lp, object_path)
 
 class BoothCam(QtWidgets.QWidget):
     def __init__(self):
@@ -307,15 +290,11 @@ class BoothCam(QtWidgets.QWidget):
         if path:
             self.logo_edit.setText(path)
 
-    # ---------- 프린트(합성+저장+세션meta+옵션 출력) ----------
+    # ---------- 프린트(합성+저장+옵션 출력) ----------
     def _print_both(self):
         if len(self.captured_images) < self.max_shots:
             self._set_status(f"사진을 {self.max_shots}장 모두 촬영하세요.", err=True)
             return
-
-        # (고정) 용지/QR 폭
-        paper_width = PAPER_WIDTH
-        qr_max_w = QR_MAX_W
 
         QtGui.QGuiApplication.inputMethod().commit()
         QtWidgets.QApplication.processEvents()
@@ -331,48 +310,12 @@ class BoothCam(QtWidgets.QWidget):
         if not Path(logo_path).exists():
             self._set_status(f"로고 파일을 찾을 수 없습니다: {logo_path}", err=True)
 
-        # 세션 ID + 임시 폴더
-        session_id = uuid.uuid4().hex[:10]
-        tmp_dir = self.captures_dir / f"tmp_{session_id}"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        # 사진 PNG 저장 + 업로드
-        photos_pil, photos_urls = [], []
-        for i, (_, frame_bgr) in enumerate(self.captured_images[:2], start=1):
+        # 사진 PIL 변환
+        photos_pil: list[Image.Image] = []
+        for _, frame_bgr in self.captured_images[:2]:
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(rgb); photos_pil.append(pil_img)
-            fname = f"photo_{i:02d}.png"
-            tmp_img = tmp_dir / fname
-            pil_img.save(tmp_img)
-            url = _upload_with_type(tmp_img, f"{session_id}/{fname}", content_type="image/png")
-            photos_urls.append(url)
-
-        # meta.json 작성 → 업로드 (view.html에서 사용)
-        meta = {
-            "photos": photos_urls,
-            "instagram_url": INSTAGRAM_URL,
-            "logo_url": LOGO_PUBLIC_URL,
-        }
-        meta_tmp = tmp_dir / "meta.json"
-        with open(meta_tmp, "w", encoding="utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
-
-        try:
-            meta_url = supa_upload(str(meta_tmp), f"{session_id}/meta.json", content_type="application/json")
-            if not meta_url:
-                raise RuntimeError("meta.json 업로드 결과가 비어 있음")
-            print(f"[DEBUG] meta.json uploaded → {meta_url}")
-        except Exception as e:
-            self._set_status(f"meta.json 업로드 실패: {e}", err=True)
-            return
-
-        # 세션 페이지 URL
-        view_base = VIEW_HTML_PUBLIC.rstrip("/")
-        page_url = f"{view_base}?sid={session_id}"
-
-        print("[DEBUG] session_id:", session_id)
-        print("[DEBUG] page_url  :", page_url)
-        self._set_status(f"페이지 URL: {page_url}")
+            pil_img = Image.fromarray(rgb)
+            photos_pil.append(pil_img)
 
         date_str = time.strftime("%Y.%m.%d")
 
@@ -380,15 +323,13 @@ class BoothCam(QtWidgets.QWidget):
         try:
             receipt = compose_receipt_two_photos(
                 photos_pil=photos_pil,
-                paper_width=paper_width,
+                paper_width=PAPER_WIDTH,
                 margin=DEFAULT_MARGIN,
                 gap=DEFAULT_GAP,
                 photo_gap=DEFAULT_PHOTO_GAP,
                 letterbox_pad=DEFAULT_LETTERBOX,
                 logo_path=logo_path,
                 logo_max_h=DEFAULT_LOGO_MAX_H,
-                qr_text=page_url,
-                qr_max_w=qr_max_w,
                 receipt_text=short_txt,
                 font_path=DEFAULT_FONT_PATH,
                 date_text=date_str,
@@ -405,8 +346,7 @@ class BoothCam(QtWidgets.QWidget):
             self._set_status(f"저장 실패: {e}", err=True)
             return
 
-        self._set_status(f"저장됨: {out_path.resolve()}  |  페이지: {page_url}")
-        print("SESSION PAGE:", page_url)
+        self._set_status(f"저장됨: {out_path.resolve()}")
 
         # USB 프린터 출력
         success_cnt = 0 

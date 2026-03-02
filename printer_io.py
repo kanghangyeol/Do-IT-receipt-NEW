@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Tuple, Optional, List
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
-import glob
+import glob, os
 
 # ──────────────────────────────────────────────────────────────
 # 선택 의존성: pyserial (USB 출력용)
@@ -10,9 +10,12 @@ import glob
 # ──────────────────────────────────────────────────────────────
 HAVE_PYSERIAL = False
 Serial = None
+list_ports = None
 try:
     from serial import Serial as _Serial
+    from serial.tools import list_ports as _list_ports
     Serial = _Serial
+    list_ports = _list_ports
     HAVE_PYSERIAL = True
 except Exception:
     pass
@@ -177,8 +180,28 @@ def _pil_to_raster_bytes_bw(
 # USB 출력
 # =============================================================
 def list_usb_candidate_ports() -> List[str]:
-    """macOS에서 흔한 CDC/시리얼 장치 경로 후보 나열."""
-    return sorted(glob.glob("/dev/tty.usbmodem*") + glob.glob("/dev/tty.usbserial*"))
+    """플랫폼 공통 CDC/시리얼 장치 경로 후보 나열."""
+    ports: List[str] = []
+    if HAVE_PYSERIAL and list_ports:
+        try:
+            ports = [p.device for p in list_ports.comports() if p.device]
+        except Exception:
+            ports = []
+
+    # pyserial 탐색이 비어 있으면 유닉스 계열 경로 스캔
+    if not ports:
+        ports.extend(glob.glob("/dev/tty.usbmodem*"))
+        ports.extend(glob.glob("/dev/tty.usbserial*"))
+        ports.extend(glob.glob("/dev/ttyUSB*"))
+
+    # 중복 제거(순서 유지)
+    seen = set()
+    uniq = []
+    for p in ports:
+        if p not in seen:
+            uniq.append(p)
+            seen.add(p)
+    return uniq
 
 
 def _serial_write_all(ser, payload: bytes, chunk: int = 2048) -> None:
@@ -254,12 +277,21 @@ def print_image_usb(
     except Exception as e:
         return False, f"이미지 변환 실패: {e}"
 
+    # 환경변수로 기본 포트/baud 설정 가능
+    env_dev = os.environ.get("PRINTER_DEVICE")
+    env_baud = os.environ.get("PRINTER_BAUDRATE")
+    if env_baud:
+        try:
+            baudrate = int(env_baud)
+        except ValueError:
+            pass
+
     # 장치 자동 탐색
-    dev = device
+    dev = device or env_dev
     if not dev:
         cands = list_usb_candidate_ports()
         if not cands:
-            return False, "USB 프린터 포트를 찾지 못했습니다. (/dev/tty.usbmodem* / /dev/tty.usbserial*)"
+            return False, "USB 프린터 포트를 찾지 못했습니다. (mac=/dev/tty.usb*, win=COM3 등)"
         dev = cands[0]
 
     try:

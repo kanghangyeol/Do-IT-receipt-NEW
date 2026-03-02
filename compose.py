@@ -1,7 +1,6 @@
 # compose.py
 from __future__ import annotations
 from PIL import Image, ImageDraw, ImageFont
-import qrcode
 
 # ----------------- 기본 유틸 -----------------
 def fit_width_keep_aspect(im: Image.Image, width: int) -> Image.Image:
@@ -28,17 +27,6 @@ def load_logo(path: str, max_w: int, max_h: int) -> Image.Image | None:
     bg = Image.new("RGB", logo.size, (255, 255, 255))
     bg.paste(logo, (0, 0), mask=logo.split()[3])
     return bg
-
-def make_qr_image(text: str, target_w: int) -> Image.Image:
-    qr = qrcode.QRCode(
-        error_correction=qrcode.constants.ERROR_CORRECT_Q,
-        box_size=9, border=2
-    )
-    qr.add_data(text)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-    tw = min(target_w, img.width)
-    return fit_width_keep_aspect(img, tw)
 
 def h_rule(width: int, height: int = 2) -> Image.Image:
     img = Image.new("RGB", (width, height), (255, 255, 255))
@@ -108,7 +96,6 @@ def compose_receipt_two_photos(
     photos_pil: list[Image.Image],
     paper_width: int, margin: int, gap: int, photo_gap: int, letterbox_pad: int,
     logo_path: str, logo_max_h: int,
-    qr_text: str, qr_max_w: int,
     receipt_text: str,                 # 영수증에만 들어갈 문구(링크 문구와 분리)
     font_path: str | None,
     date_text: str | None = None,
@@ -146,12 +133,6 @@ def compose_receipt_two_photos(
         ph2 = fit_width_keep_aspect(photos_pil[1].convert("RGB"), ww)
         ph2 = add_letterbox(ph2, ww, letterbox_pad)
         blocks.append(ph2)
-
-    # QR
-    qr = make_qr_image(qr_text, qr_max_w)
-    qr_can = Image.new("RGB", (ww, qr.height), (255, 255, 255))
-    qr_can.paste(qr, ((ww - qr.width)//2, 0))
-    blocks.append(qr_can)
 
     # 라인 + 영수증 문구(마지막 글자 안전)
     blocks.append(h_rule(ww, 2))
