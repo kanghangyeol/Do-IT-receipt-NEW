@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, tempfile
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets, QtGui
 
@@ -7,6 +7,25 @@ from PIL import Image
 
 from compose import compose_receipt_two_photos
 from printer_io import print_image_usb, list_usb_candidate_ports
+
+# ── SVG 에셋 자동 생성 ──────────────────────────────────────────
+_ASSET_DIR = Path(tempfile.gettempdir()) / "doit_booth_assets"
+_ASSET_DIR.mkdir(exist_ok=True)
+(_ASSET_DIR / "check.svg").write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+    '<polyline points="2,9 6,13 14,3" fill="none" stroke="white" '
+    'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+(_ASSET_DIR / "arrow_up.svg").write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12">'
+    '<polyline points="1,8 6,3 11,8" fill="none" stroke="#aab8d0" '
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+(_ASSET_DIR / "arrow_down.svg").write_text(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12">'
+    '<polyline points="1,4 6,9 11,4" fill="none" stroke="#aab8d0" '
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+_CHECK  = str(_ASSET_DIR / "check.svg").replace("\\", "/")
+_ARR_UP = str(_ASSET_DIR / "arrow_up.svg").replace("\\", "/")
+_ARR_DN = str(_ASSET_DIR / "arrow_down.svg").replace("\\", "/")
 
 # ===== 고정값 / 기본값 =====
 DEFAULT_SHORT_TEXT  = "JUST Do-IT!"
@@ -150,7 +169,7 @@ QLineEdit:focus { border-color: #e84060; }
 
 QCheckBox { color: #dde4f0; spacing: 8px; }
 QCheckBox::indicator {
-    width: 16px; height: 16px; border-radius: 4px;
+    width: 18px; height: 18px; border-radius: 4px;
     border: 2px solid #3a5080; background: #1e2a45;
 }
 QCheckBox::indicator:checked  { background: #e84060; border-color: #e84060; }
@@ -159,6 +178,23 @@ QCheckBox::indicator:hover    { border-color: #e84060; }
 QScrollBar:vertical { background: #1e2a45; width: 6px; border-radius: 3px; }
 QScrollBar::handle:vertical { background: #3a5080; border-radius: 3px; min-height: 20px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+"""
+
+APP_STYLE += f"""
+QCheckBox::indicator:checked {{
+    background: #e84060; border-color: #e84060;
+    image: url({_CHECK});
+}}
+QSpinBox::up-button {{
+    width: 20px; border: none; background: #253560;
+    image: url({_ARR_UP});
+}}
+QSpinBox::down-button {{
+    width: 20px; border: none; background: #253560;
+    image: url({_ARR_DN});
+}}
+QSpinBox::up-button:hover   {{ background: #e84060; }}
+QSpinBox::down-button:hover {{ background: #e84060; }}
 """
 
 
@@ -419,15 +455,6 @@ class BoothCam(QtWidgets.QWidget):
 
         right.addWidget(_sep())
 
-        # 썸네일 2장 (세로)
-        thumb_lbl = QtWidgets.QLabel("촬영 사진")
-        thumb_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        right.addWidget(thumb_lbl)
-        for lbl in self.thumb_labels:
-            right.addWidget(lbl, 1)   # stretch=1 → 남은 공간 분배
-
-        right.addWidget(_sep())
-
         # 설정 영역
         msg_lbl = QtWidgets.QLabel("영수증 문구")
         msg_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
@@ -463,12 +490,30 @@ class BoothCam(QtWidgets.QWidget):
         right.addWidget(self.status)
 
         # ════════════════════════════════════════
+        # 왼쪽: 카메라(위) + 썸네일(아래)
+        # ════════════════════════════════════════
+        thumb_row = QtWidgets.QWidget()
+        thumb_row.setFixedHeight(160)
+        thumb_row_layout = QtWidgets.QHBoxLayout(thumb_row)
+        thumb_row_layout.setContentsMargins(0, 0, 0, 0)
+        thumb_row_layout.setSpacing(8)
+        for lbl in self.thumb_labels:
+            thumb_row_layout.addWidget(lbl, 1)
+
+        left_widget = QtWidgets.QWidget()
+        left_layout = QtWidgets.QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+        left_layout.addWidget(self.video_container, 1)
+        left_layout.addWidget(thumb_row)
+
+        # ════════════════════════════════════════
         # 루트 레이아웃
         # ════════════════════════════════════════
         root = QtWidgets.QHBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(14)
-        root.addWidget(self.video_container, 1)
+        root.addWidget(left_widget, 1)
 
         right_widget = QtWidgets.QWidget()
         right_widget.setLayout(right)
