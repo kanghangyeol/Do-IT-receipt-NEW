@@ -12,7 +12,8 @@ cd Do-IT-receipt-NEW
 bash run_booth.sh
 ```
 
-> **Python, venv, 패키지 설치 모두 자동으로 처리됩니다.**
+> **Python, venv, 패키지 설치, 업데이트 모두 자동으로 처리됩니다.**
+> - 실행할 때마다 GitHub에서 최신 코드 자동 업데이트
 > - Python 3.9 미만이면 pyenv로 Python 3.12를 자동 설치
 > - `.venv` 가상환경이 없으면 자동 생성
 > - 필요한 패키지가 없으면 자동 설치

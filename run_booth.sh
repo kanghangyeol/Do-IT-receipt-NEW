@@ -5,6 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+# ── 0. 최신 코드 자동 업데이트 ──────────────────────────────────
+if command -v git >/dev/null 2>&1 && [ -d "$ROOT/.git" ]; then
+  echo "[run_booth] 최신 업데이트 확인 중..."
+  git pull --quiet || echo "[run_booth] git pull 실패 (오프라인?), 기존 버전으로 실행합니다."
+fi
+
 # ── 1. Python 버전 확인 (3.9 이상 필요) ─────────────────────────
 check_py_version() {
   "$1" -c "import sys; sys.exit(0 if sys.version_info >= (3,9) else 1)" 2>/dev/null
