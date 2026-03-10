@@ -448,16 +448,16 @@ class BoothCam(QtWidgets.QWidget):
         cd_copies_row.addWidget(self.copies_combo, 1)
         right.addLayout(cd_copies_row)
 
-        right.addWidget(self.count_label)
-
-        # 촬영·출력·초기화·자동초기화·상태바 전체를 하나의 컨테이너에 붙여서 배치
+        # 남은촬영 ~ 상태바 전체를 하나의 컨테이너에 밀착 배치
         btn_block = QtWidgets.QWidget()
         btn_vbox = QtWidgets.QVBoxLayout(btn_block)
         btn_vbox.setContentsMargins(0, 0, 0, 0)
-        btn_vbox.setSpacing(2)
+        btn_vbox.setSpacing(0)
+
+        btn_vbox.addWidget(self.count_label)
 
         action_row = QtWidgets.QHBoxLayout()
-        action_row.setSpacing(8)
+        action_row.setSpacing(4)
         action_row.addWidget(self.snap_btn, 1)
         action_row.addWidget(self.print_btn, 1)
         btn_vbox.addLayout(action_row)
