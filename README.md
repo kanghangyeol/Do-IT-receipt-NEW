@@ -4,23 +4,18 @@ PySide6 + OpenCV로 두 장의 사진을 찍어 영수증 형태로 합성하고
 
 ## 빠른 시작
 
-### macOS / Linux
+### macOS / Linux — 딱 3줄
 
 ```bash
 git clone https://github.com/kanghangyeol/Do-IT-receipt-NEW.git
 cd Do-IT-receipt-NEW
-
-# 가상환경 생성 (Python 3.12 권장)
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 패키지 설치
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# 실행
 bash run_booth.sh
 ```
+
+> **Python, venv, 패키지 설치 모두 자동으로 처리됩니다.**
+> - Python 3.9 미만이면 pyenv로 Python 3.12를 자동 설치
+> - `.venv` 가상환경이 없으면 자동 생성
+> - 필요한 패키지가 없으면 자동 설치
 
 ### Windows (PowerShell)
 
@@ -45,7 +40,7 @@ python app.py
 | 직접 실행 | `python app.py` |
 | 디버그 모드 | `USE_QT_DEBUG=1 bash run_booth.sh` |
 
-- `run_booth.sh`는 venv 자동 감지, 패키지 설치 여부 확인, macOS Qt 플러그인 문제 자동 수정을 모두 처리합니다.
+- `run_booth.sh`는 Python 버전 확인, venv 생성, 패키지 설치, macOS Qt 플러그인 문제 자동 수정을 모두 처리합니다.
 - 사진/영수증 결과물은 `captures/` 폴더에 저장됩니다.
 
 ## 환경변수 (.env) — 모두 선택사항
