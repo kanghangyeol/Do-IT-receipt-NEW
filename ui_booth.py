@@ -330,28 +330,28 @@ class BoothCam(QtWidgets.QWidget):
         self.count_label = QtWidgets.QLabel("남은 촬영: 2장")
         self.count_label.setAlignment(QtCore.Qt.AlignCenter)
         self.count_label.setStyleSheet(
-            "color:#e84060; font-size:14px; font-weight:bold;"
-            "background:#200a12; border-radius:6px; padding:6px;"
+            "color:#e84060; font-size:12px; font-weight:bold;"
+            "background:#200a12; border-radius:4px; padding:2px 6px;"
         )
+        self.count_label.setFixedHeight(24)
 
         self.snap_btn = QtWidgets.QPushButton("📷  촬영")
         self.snap_btn.setObjectName("snapBtn")
-        self.snap_btn.setFixedHeight(64)
+        self.snap_btn.setFixedHeight(90)
         self.snap_btn.setToolTip("사진 촬영 (Space)")
 
         self.print_btn = QtWidgets.QPushButton("🖨  출력")
         self.print_btn.setObjectName("printBtn")
-        self.print_btn.setFixedHeight(64)
+        self.print_btn.setFixedHeight(90)
         self.print_btn.setEnabled(False)
 
         self.reset_btn = QtWidgets.QPushButton("↺  초기화")
         self.reset_btn.setObjectName("resetBtn")
-        self.reset_btn.setFixedHeight(36)
+        self.reset_btn.setFixedHeight(34)
 
-        # 프린터 새로고침 버튼
+        # 프린터 새로고침 버튼 (콤보박스 높이에 맞춤)
         self.refresh_printer_btn = QtWidgets.QPushButton("🔌 검색")
         self.refresh_printer_btn.setObjectName("smallBtn")
-        self.refresh_printer_btn.setFixedHeight(28)
 
         # ── 썸네일 (오른쪽 패널 상단, 세로로 2장) ──
         self.thumb_labels = []
@@ -365,6 +365,8 @@ class BoothCam(QtWidgets.QWidget):
             lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
             self.thumb_labels.append(lbl)
 
+        _FIELD_H = 32
+
         # 문구
         self.short_edit = QtWidgets.QTextEdit()
         self.short_edit.setAcceptRichText(False)
@@ -374,20 +376,21 @@ class BoothCam(QtWidgets.QWidget):
         self.short_edit.setPlaceholderText("영수증 하단 문구")
         self.short_edit.setPlainText(DEFAULT_SHORT_TEXT)
         self.short_edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        fm = self.short_edit.fontMetrics()
-        self.short_edit.setFixedHeight(fm.lineSpacing() * 2 + 20)
+        self.short_edit.setFixedHeight(_FIELD_H)
 
         # 로고
         self.logo_edit = QtWidgets.QLineEdit(DEFAULT_LOGO_PATH)
+        self.logo_edit.setFixedHeight(_FIELD_H)
         self.logo_btn  = QtWidgets.QPushButton("📁")
         self.logo_btn.setObjectName("smallBtn")
-        self.logo_btn.setFixedWidth(40)
+        self.logo_btn.setFixedSize(32, _FIELD_H)
 
         # 프린터
         self.chk_printer    = QtWidgets.QCheckBox("USB 프린터 출력")
         self.chk_printer.setChecked(True)
         self.chk_auto_reset = QtWidgets.QCheckBox("출력 후 자동 초기화")
         self.chk_auto_reset.setChecked(True)
+        self.chk_auto_reset.setStyleSheet("font-size:10px; color:#777;")
 
         self.copies_combo = QtWidgets.QComboBox()
         self.copies_combo.addItems([str(i) for i in range(1, 11)])
@@ -401,9 +404,10 @@ class BoothCam(QtWidgets.QWidget):
         self.status = QtWidgets.QLabel("✔ 준비")
         self.status.setWordWrap(True)
         self.status.setStyleSheet(
-            "color:#4da6ff; background:#081828; border-radius:6px;"
-            "padding:6px 10px; font-size:12px;"
+            "color:#4da6ff; background:#081828; border-radius:4px;"
+            "padding:2px 8px; font-size:11px;"
         )
+        self.status.setFixedHeight(24)
 
         # 프린터 포트 초기 탐색 (self.status 생성 이후)
         self._refresh_printer_ports()
@@ -441,8 +445,17 @@ class BoothCam(QtWidgets.QWidget):
         action_row.addWidget(self.print_btn, 1)
         right.addLayout(action_row)
 
-        # 초기화 (전체 너비, 얇게)
-        right.addWidget(self.reset_btn)
+        # 초기화 + 자동초기화 체크박스 (초기화 버튼 오른쪽 아래)
+        reset_container = QtWidgets.QWidget()
+        reset_vbox = QtWidgets.QVBoxLayout(reset_container)
+        reset_vbox.setContentsMargins(0, 0, 0, 0)
+        reset_vbox.setSpacing(2)
+        reset_vbox.addWidget(self.reset_btn)
+        auto_row = QtWidgets.QHBoxLayout()
+        auto_row.addStretch()
+        auto_row.addWidget(self.chk_auto_reset)
+        reset_vbox.addLayout(auto_row)
+        right.addWidget(reset_container)
 
         # 구분선
         def _sep():
@@ -481,7 +494,6 @@ class BoothCam(QtWidgets.QWidget):
         printer_row.addWidget(copies_lbl)
         printer_row.addWidget(self.copies_combo)
         right.addLayout(printer_row)
-        right.addWidget(self.chk_auto_reset)
 
         # 프린터 포트 + 검색 버튼
         port_row = QtWidgets.QHBoxLayout()
@@ -754,9 +766,9 @@ class BoothCam(QtWidgets.QWidget):
     def _set_status(self, text: str, err: bool = False):
         self.status.setText(f"{'⚠ ' if err else '✔ '}{text}")
         self.status.setStyleSheet(
-            "color:#ff7070; background:#200808; border-radius:6px; padding:6px 10px; font-size:12px;"
+            "color:#ff7070; background:#200808; border-radius:4px; padding:2px 8px; font-size:11px;"
             if err else
-            "color:#4da6ff; background:#081828; border-radius:6px; padding:6px 10px; font-size:12px;"
+            "color:#4da6ff; background:#081828; border-radius:4px; padding:2px 8px; font-size:11px;"
         )
 
     def closeEvent(self, e):
