@@ -335,14 +335,17 @@ class BoothCam(QtWidgets.QWidget):
         )
         self.count_label.setFixedHeight(24)
 
-        self.snap_btn = QtWidgets.QPushButton("📷  촬영")
+        # right panel content = 320 - 10*2 = 300px, two buttons with 8px gap → 146px each
+        _BTN_SQ = 144
+
+        self.snap_btn = QtWidgets.QPushButton("📷\n촬영")
         self.snap_btn.setObjectName("snapBtn")
-        self.snap_btn.setFixedHeight(90)
+        self.snap_btn.setFixedHeight(_BTN_SQ)
         self.snap_btn.setToolTip("사진 촬영 (Space)")
 
-        self.print_btn = QtWidgets.QPushButton("🖨  출력")
+        self.print_btn = QtWidgets.QPushButton("🖨\n출력")
         self.print_btn.setObjectName("printBtn")
-        self.print_btn.setFixedHeight(90)
+        self.print_btn.setFixedHeight(_BTN_SQ)
         self.print_btn.setEnabled(False)
 
         self.reset_btn = QtWidgets.QPushButton("↺  초기화")
@@ -390,11 +393,15 @@ class BoothCam(QtWidgets.QWidget):
         self.chk_printer.setChecked(True)
         self.chk_auto_reset = QtWidgets.QCheckBox("출력 후 자동 초기화")
         self.chk_auto_reset.setChecked(True)
-        self.chk_auto_reset.setStyleSheet("font-size:10px; color:#777;")
+        self.chk_auto_reset.setStyleSheet(
+            "QCheckBox { font-size:10px; color:#666; spacing:3px; }"
+            "QCheckBox::indicator { width:10px; height:10px; border-radius:2px;"
+            " border:1px solid #3a5080; background:#1e2a45; }"
+            f"QCheckBox::indicator:checked {{ background:#e84060; border-color:#e84060; image:url({_CHECK}); }}"
+        )
 
         self.copies_combo = QtWidgets.QComboBox()
         self.copies_combo.addItems([str(i) for i in range(1, 11)])
-        self.copies_combo.setFixedWidth(70)
 
         # 프린터 포트 콤보
         self.printer_port_combo = QtWidgets.QComboBox()
@@ -427,34 +434,41 @@ class BoothCam(QtWidgets.QWidget):
         dev_row.addWidget(self.device_combo, 1)
         right.addLayout(dev_row)
 
-        # 카운트다운
-        cd_row = QtWidgets.QHBoxLayout()
-        cd_lbl = QtWidgets.QLabel("카운트다운:")
-        cd_lbl.setStyleSheet("color:#888; font-size:12px;")
-        cd_row.addWidget(cd_lbl)
-        cd_row.addStretch()
-        cd_row.addWidget(self.countdown_spin)
-        right.addLayout(cd_row)
+        # 카운트다운 + 매수 (각각 절반)
+        def _lbl(text):
+            l = QtWidgets.QLabel(text)
+            l.setStyleSheet("color:#888; font-size:12px;")
+            return l
+
+        cd_copies_row = QtWidgets.QHBoxLayout()
+        cd_copies_row.setSpacing(6)
+        cd_copies_row.addWidget(_lbl("카운트:"))
+        cd_copies_row.addWidget(self.countdown_spin, 1)
+        cd_copies_row.addWidget(_lbl("매수:"))
+        cd_copies_row.addWidget(self.copies_combo, 1)
+        right.addLayout(cd_copies_row)
 
         right.addWidget(self.count_label)
 
-        # 촬영 + 출력 나란히
+        # 촬영 + 출력 나란히 (정사각형)
         action_row = QtWidgets.QHBoxLayout()
         action_row.setSpacing(8)
         action_row.addWidget(self.snap_btn, 1)
         action_row.addWidget(self.print_btn, 1)
         right.addLayout(action_row)
 
-        # 초기화 + 자동초기화 체크박스 (초기화 버튼 오른쪽 아래)
+        # 초기화 + 자동초기화(오른쪽 아래) + 상태바
         reset_container = QtWidgets.QWidget()
         reset_vbox = QtWidgets.QVBoxLayout(reset_container)
         reset_vbox.setContentsMargins(0, 0, 0, 0)
-        reset_vbox.setSpacing(2)
+        reset_vbox.setSpacing(1)
         reset_vbox.addWidget(self.reset_btn)
         auto_row = QtWidgets.QHBoxLayout()
+        auto_row.setContentsMargins(0, 0, 0, 0)
         auto_row.addStretch()
         auto_row.addWidget(self.chk_auto_reset)
         reset_vbox.addLayout(auto_row)
+        reset_vbox.addWidget(self.status)
         right.addWidget(reset_container)
 
         # 구분선
@@ -466,52 +480,48 @@ class BoothCam(QtWidgets.QWidget):
 
         right.addWidget(_sep())
 
-        # 설정 영역 (간격 최소화)
+        # 문구 / 로고 (같은 높이, 같은 구조)
+        _LBL_W = 30
         msg_row = QtWidgets.QHBoxLayout()
         msg_row.setSpacing(6)
         msg_lbl = QtWidgets.QLabel("문구:")
         msg_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        msg_lbl.setFixedWidth(30)
+        msg_lbl.setFixedWidth(_LBL_W)
         msg_row.addWidget(msg_lbl)
         msg_row.addWidget(self.short_edit, 1)
+        # 빈 자리 맞춤 (로고 버튼 폭만큼)
+        _spacer = QtWidgets.QWidget()
+        _spacer.setFixedSize(self.logo_btn.width() or 32, 1)
+        msg_row.addWidget(_spacer)
         right.addLayout(msg_row)
 
         logo_row = QtWidgets.QHBoxLayout()
         logo_row.setSpacing(6)
         logo_lbl = QtWidgets.QLabel("로고:")
         logo_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        logo_lbl.setFixedWidth(30)
+        logo_lbl.setFixedWidth(_LBL_W)
         logo_row.addWidget(logo_lbl)
         logo_row.addWidget(self.logo_edit, 1)
         logo_row.addWidget(self.logo_btn)
         right.addLayout(logo_row)
 
+        # USB 프린터 체크 + 포트 + 검색
         printer_row = QtWidgets.QHBoxLayout()
         printer_row.addWidget(self.chk_printer)
-        printer_row.addStretch()
-        copies_lbl = QtWidgets.QLabel("매수:")
-        copies_lbl.setStyleSheet("color:#888; font-size:12px;")
-        printer_row.addWidget(copies_lbl)
-        printer_row.addWidget(self.copies_combo)
         right.addLayout(printer_row)
 
-        # 프린터 포트 + 검색 버튼
         port_row = QtWidgets.QHBoxLayout()
         port_row.setSpacing(6)
-        port_lbl = QtWidgets.QLabel("포트:")
-        port_lbl.setStyleSheet("color:#888; font-size:12px;")
-        port_row.addWidget(port_lbl)
+        port_row.addWidget(_lbl("포트:"))
         port_row.addWidget(self.printer_port_combo, 1)
         port_row.addWidget(self.refresh_printer_btn)
         right.addLayout(port_row)
-
-        right.addWidget(self.status)
 
         # ════════════════════════════════════════
         # 왼쪽: 카메라(위) + 썸네일(아래)
         # ════════════════════════════════════════
         thumb_row = QtWidgets.QWidget()
-        thumb_row.setFixedHeight(160)
+        thumb_row.setFixedHeight(220)
         thumb_row_layout = QtWidgets.QHBoxLayout(thumb_row)
         thumb_row_layout.setContentsMargins(0, 0, 0, 0)
         thumb_row_layout.setSpacing(8)
@@ -521,7 +531,7 @@ class BoothCam(QtWidgets.QWidget):
         left_widget = QtWidgets.QWidget()
         left_layout = QtWidgets.QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        left_layout.setSpacing(4)
         left_layout.addWidget(self.video_container, 1)
         left_layout.addWidget(thumb_row)
 
