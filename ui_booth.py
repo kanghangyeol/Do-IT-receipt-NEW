@@ -482,42 +482,47 @@ class BoothCam(QtWidgets.QWidget):
 
         right.addWidget(_sep())
 
-        # 문구 / 로고 (같은 높이, 같은 구조)
-        _LBL_W = 30
-        msg_row = QtWidgets.QHBoxLayout()
-        msg_row.setSpacing(6)
-        msg_lbl = QtWidgets.QLabel("문구:")
-        msg_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        msg_lbl.setFixedWidth(_LBL_W)
-        msg_row.addWidget(msg_lbl)
-        msg_row.addWidget(self.short_edit, 1)
-        # 빈 자리 맞춤 (로고 버튼 폭만큼)
-        _spacer = QtWidgets.QWidget()
-        _spacer.setFixedSize(self.logo_btn.width() or 32, 1)
-        msg_row.addWidget(_spacer)
-        right.addLayout(msg_row)
-
-        logo_row = QtWidgets.QHBoxLayout()
-        logo_row.setSpacing(6)
-        logo_lbl = QtWidgets.QLabel("로고:")
-        logo_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        logo_lbl.setFixedWidth(_LBL_W)
-        logo_row.addWidget(logo_lbl)
-        logo_row.addWidget(self.logo_edit, 1)
-        logo_row.addWidget(self.logo_btn)
-        right.addLayout(logo_row)
-
-        # USB 프린터 체크 + 포트 + 검색
+        # USB 프린터 체크
         printer_row = QtWidgets.QHBoxLayout()
         printer_row.addWidget(self.chk_printer)
         right.addLayout(printer_row)
 
-        port_row = QtWidgets.QHBoxLayout()
-        port_row.setSpacing(6)
-        port_row.addWidget(_lbl("포트:"))
-        port_row.addWidget(self.printer_port_combo, 1)
-        port_row.addWidget(self.refresh_printer_btn)
-        right.addLayout(port_row)
+        # 문구 / 로고 / 포트 — 3열 그리드로 오·열 정렬
+        _LBL_W  = 30
+        _FIELD_H = 32
+        _BTN_W  = 34
+
+        self.logo_btn.setFixedSize(_BTN_W, _FIELD_H)
+        self.refresh_printer_btn.setFixedSize(_BTN_W, _FIELD_H)
+        self.short_edit.setFixedHeight(_FIELD_H)
+        self.logo_edit.setFixedHeight(_FIELD_H)
+
+        def _field_lbl(text):
+            l = QtWidgets.QLabel(text)
+            l.setStyleSheet("color:#6a7a9a; font-size:11px;")
+            l.setFixedWidth(_LBL_W)
+            return l
+
+        _no_btn = QtWidgets.QWidget()   # 문구 행 버튼 자리 빈칸
+        _no_btn.setFixedSize(_BTN_W, _FIELD_H)
+
+        grid = QtWidgets.QGridLayout()
+        grid.setSpacing(6)
+        grid.setColumnStretch(1, 1)
+
+        grid.addWidget(_field_lbl("문구:"),              0, 0)
+        grid.addWidget(self.short_edit,                   0, 1)
+        grid.addWidget(_no_btn,                           0, 2)
+
+        grid.addWidget(_field_lbl("로고:"),              1, 0)
+        grid.addWidget(self.logo_edit,                    1, 1)
+        grid.addWidget(self.logo_btn,                     1, 2)
+
+        grid.addWidget(_field_lbl("포트:"),              2, 0)
+        grid.addWidget(self.printer_port_combo,           2, 1)
+        grid.addWidget(self.refresh_printer_btn,          2, 2)
+
+        right.addLayout(grid)
 
         # ════════════════════════════════════════
         # 왼쪽: 카메라(위) + 썸네일(아래)
