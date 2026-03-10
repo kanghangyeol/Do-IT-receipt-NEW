@@ -433,19 +433,19 @@ class BoothCam(QtWidgets.QWidget):
             l.setStyleSheet("color:#888; font-size:12px;")
             return l
 
+        # 카운트다운 ~ 상태바 전체를 하나의 컨테이너에 밀착 배치
+        btn_block = QtWidgets.QWidget()
+        btn_vbox = QtWidgets.QVBoxLayout(btn_block)
+        btn_vbox.setContentsMargins(0, 0, 0, 0)
+        btn_vbox.setSpacing(0)
+
         cd_copies_row = QtWidgets.QHBoxLayout()
         cd_copies_row.setSpacing(6)
         cd_copies_row.addWidget(_lbl("카운트:"))
         cd_copies_row.addWidget(self.countdown_spin, 1)
         cd_copies_row.addWidget(_lbl("매수:"))
         cd_copies_row.addWidget(self.copies_combo, 1)
-        right.addLayout(cd_copies_row)
-
-        # 남은촬영 ~ 상태바 전체를 하나의 컨테이너에 밀착 배치
-        btn_block = QtWidgets.QWidget()
-        btn_vbox = QtWidgets.QVBoxLayout(btn_block)
-        btn_vbox.setContentsMargins(0, 0, 0, 0)
-        btn_vbox.setSpacing(0)
+        btn_vbox.addLayout(cd_copies_row)
 
         btn_vbox.addWidget(self.count_label)
 
