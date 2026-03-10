@@ -1,77 +1,49 @@
 #!/usr/bin/env bash
+# doit-view 실행 스크립트 (macOS / Linux / Windows Git Bash)
 set -euo pipefail
 
-# Run from repo root
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
 
-# Load .env if present (kept out of git)
-if [ -f "$ROOT/.env" ]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$ROOT/.env"
-  set +a
+# ── 1. Python 선택 (venv 우선) ──────────────────────────────────
+if   [ -x "$ROOT/.venv/bin/python" ];          then PY="$ROOT/.venv/bin/python"
+elif [ -x "$ROOT/venv/bin/python" ];           then PY="$ROOT/venv/bin/python"
+elif [ -x "$ROOT/.venv/Scripts/python.exe" ];  then PY="$ROOT/.venv/Scripts/python.exe"
+elif [ -x "$ROOT/venv/Scripts/python.exe" ];   then PY="$ROOT/venv/Scripts/python.exe"
+elif command -v python3 >/dev/null 2>&1;        then PY="python3"
+else                                                 PY="python"
 fi
 
-# Pick Python (prefer project venv)
-if [ -n "${PYTHON:-}" ]; then
-  PY="$PYTHON"
-elif [ -x "$ROOT/.venv/bin/python" ]; then
-  PY="$ROOT/.venv/bin/python"
-elif [ -x "$ROOT/venv/bin/python" ]; then
-  PY="$ROOT/venv/bin/python"
-elif [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
-  PY="$ROOT/.venv/Scripts/python.exe"
-elif [ -x "$ROOT/venv/Scripts/python.exe" ]; then
-  PY="$ROOT/venv/Scripts/python.exe"
-else
-  if command -v python3.12 >/dev/null 2>&1; then
-    PY="python3.12"
-  elif command -v python3 >/dev/null 2>&1; then
-    PY="python3"
-  else
-    PY="python"
-  fi
+echo "[run_booth] Python: $PY ($($PY --version 2>&1))"
+
+# ── 2. 의존성 자동 확인 / 설치 ───────────────────────────────────
+if ! "$PY" -c "import PySide6, cv2, PIL, serial" 2>/dev/null; then
+  echo "[run_booth] 필요한 패키지를 설치합니다..."
+  "$PY" -m pip install -r "$ROOT/requirements.txt" --quiet
 fi
 
-USE_QT_DEBUG=${USE_QT_DEBUG:-0}
-if [ "$USE_QT_DEBUG" = "1" ]; then
-  export QT_DEBUG_PLUGINS=1
-fi
-
-# Qt 플러그인/플랫폼 경로 설정 (PySide6 기준)
-PLUG_ROOT="$("$PY" - <<'PY'
-import importlib.util
-from pathlib import Path
-spec = importlib.util.find_spec("PySide6")
-if spec and spec.submodule_search_locations:
-    base = Path(next(iter(spec.submodule_search_locations)))
-    print(base / "Qt" / "plugins")
-PY
-)"
-if [ -n "$PLUG_ROOT" ] && [ -d "$PLUG_ROOT" ]; then
-  export QT_PLUGIN_PATH="$PLUG_ROOT"
-  if [ -d "$PLUG_ROOT/platforms" ]; then
-    export QT_QPA_PLATFORM_PLUGIN_PATH="$PLUG_ROOT/platforms"
-  fi
-fi
-
-# macOS: Qt 프레임워크 경로 주입 + 기본 cocoa 플랫폼 지정
+# ── 3. macOS: Qt 플러그인 hidden 플래그 제거 (pip 설치 후 발생하는 문제 방지) ──
+# PySide6 Qt 플러그인 파일에 hidden 플래그가 설정되면 Qt가 파일을 인식 못함
 if [ "$(uname)" = "Darwin" ]; then
-  QT_LIB_DIR="$("$PY" - <<'PY'
+  PS6_PLUG="$("$PY" - 2>/dev/null <<'PYEOF'
 import importlib.util
 from pathlib import Path
 spec = importlib.util.find_spec("PySide6")
 if spec and spec.submodule_search_locations:
-    base = Path(next(iter(spec.submodule_search_locations)))
-    print(base / "Qt" / "lib")
-PY
+    p = Path(next(iter(spec.submodule_search_locations))) / "Qt" / "plugins"
+    if p.exists():
+        print(p)
+PYEOF
 )"
-  if [ -d "$QT_LIB_DIR" ]; then
-    export DYLD_FRAMEWORK_PATH="$QT_LIB_DIR"
-  fi
-  if [ -z "${QT_QPA_PLATFORM:-}" ]; then
-    export QT_QPA_PLATFORM=cocoa
+  if [ -n "$PS6_PLUG" ]; then
+    find "$PS6_PLUG" -name "*.dylib" -exec chflags nohidden {} \; 2>/dev/null || true
   fi
 fi
 
+# ── 4. 디버그 모드: USE_QT_DEBUG=1 bash run_booth.sh ─────────────
+[ "${USE_QT_DEBUG:-0}" = "1" ] && export QT_DEBUG_PLUGINS=1
+
+# ── 5. 실행 ──────────────────────────────────────────────────────
+# Qt cocoa 플러그인 로딩은 app.py 내부에서 ctypes 프리로드로 처리됨
+echo "[run_booth] 앱 시작..."
 exec "$PY" "$ROOT/app.py"

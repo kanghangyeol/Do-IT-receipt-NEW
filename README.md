@@ -1,12 +1,12 @@
 # Do-IT View (영수증 사진관)
 
-PySide6 + OpenCV로 두 장의 사진을 찍어 영수증 형태로 합성하고(필요하면 USB 프린터 출력) 로컬에 저장하는 부스용 앱입니다. QR/웹페이지 업로드 없이 오프라인으로 동작합니다.
+PySide6 + OpenCV로 두 장의 사진을 찍어 영수증 형태로 합성하고(필요하면 USB 프린터 출력) 로컬에 저장하는 부스용 앱입니다. QR/웹페이지 업로드 기능은 모두 제거되었으며 오프라인으로만 동작합니다.
 
 ## 빠른 시작
 - macOS/Linux  
   `git clone <repo-url> && cd doit-view`  
-  **macOS는 Python 3.12 권장** → `python3.12 -m venv .venv && source .venv/bin/activate`  
-  (3.13은 Qt cocoa 플러그인 문제로 실패할 수 있음)  
+  **macOS는 Python 3.11 권장** → `python3.11 -m venv .venv && source .venv/bin/activate`  
+  (3.12/3.13은 Qt cocoa 플러그인 문제가 발생할 수 있음)  
   `pip install --upgrade pip && pip install -r requirements.txt`  
   `cp .env.example .env` (필요한 경우만 값 설정) 후 `python app.py` 또는 `bash run_booth.sh`
 - Windows (PowerShell)  
@@ -21,6 +21,7 @@ PySide6 + OpenCV로 두 장의 사진을 찍어 영수증 형태로 합성하고
 
 ## 실행
 - macOS/Linux: `bash run_booth.sh` (자동으로 .env 로드 및 venv 우선). 실패 시 `python app.py` 직접 실행으로 확인.
+- macOS에서 Qt 플러그인 문제 시: `USE_QT_DEBUG=1 bash run_booth.sh` 로 로딩 로그 확인.
 - Windows: `.venv` 활성화 후 `python app.py`.
 - 사진/영수증 결과물은 `captures/`에 저장됩니다.
 
@@ -31,3 +32,4 @@ PySide6 + OpenCV로 두 장의 사진을 찍어 영수증 형태로 합성하고
 ## 기타
 - 기본 폰트는 macOS/Windows/Linux 각각의 대표 폰트를 시도하며, 잘 안 맞으면 `.env`의 `FONT_PATH`로 지정하세요.
 - `.gitignore`로 venv, 캐시, 출력물은 커밋되지 않습니다.
+- macOS에서 Qt 플러그인(cocoa) 문제 지속 시: `USE_QT_DEBUG=1 bash run_booth.sh`로 로그를 보고, `DYLD_FRAMEWORK_PATH`가 PySide6 Qt/lib로 설정됐는지 확인하세요(스크립트에서 자동 설정).

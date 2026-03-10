@@ -6,188 +6,488 @@ import cv2, time
 from PIL import Image
 
 from compose import compose_receipt_two_photos
-from printer_io import print_image_usb
+from printer_io import print_image_usb, list_usb_candidate_ports
 
 # ===== 고정값 / 기본값 =====
 DEFAULT_SHORT_TEXT  = "JUST Do-IT!"
-DEFAULT_FONT_PATH   = "/System/Library/Fonts/AppleSDGothicNeo.ttc"  # macOS 기본
+DEFAULT_FONT_PATH   = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 if sys.platform.startswith("win"):
     DEFAULT_FONT_PATH = r"C:\Windows\Fonts\malgun.ttf"
 elif sys.platform.startswith("linux"):
     DEFAULT_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-# 영수증(프린트 합성) 레이아웃 (80mm 고정)
-PAPER_WIDTH         = 576           # 80mm
-DEFAULT_MARGIN      = 7
-DEFAULT_GAP         = 4
-DEFAULT_PHOTO_GAP   = 8
-DEFAULT_LOGO_PATH   = "Doit_logo.jpeg"
-DEFAULT_LETTERBOX   = 0
-DEFAULT_LOGO_MAX_H  = 160
+PAPER_WIDTH        = 576
+DEFAULT_MARGIN     = 7
+DEFAULT_GAP        = 4
+DEFAULT_PHOTO_GAP  = 8
+DEFAULT_LOGO_PATH  = "Doit_logo.jpeg"
+DEFAULT_LETTERBOX  = 0
+DEFAULT_LOGO_MAX_H = 160
 
-# --- 환경변수로 덮어쓰기(있는 경우에만) ---
 _env_font = os.getenv("FONT_PATH")
 if _env_font:
     DEFAULT_FONT_PATH = _env_font
 
+# ===== 스타일 =====
+APP_STYLE = """
+QWidget {
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'Apple SD Gothic Neo', 'DejaVu Sans', sans-serif;
+    font-size: 13px;
+}
+QLabel { color: #e0e0e0; }
+
+/* ── 기본 버튼 ── */
+QPushButton {
+    background-color: #1e2a45;
+    color: #dde4f0;
+    border: 2px solid #3a5080;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: bold;
+}
+QPushButton:hover  { background-color: #253560; border-color: #6080c0; color: #ffffff; }
+QPushButton:pressed{ background-color: #304080; border-color: #80a0e0; color: #ffffff; }
+QPushButton:disabled{ background-color: #1a1a2e; color: #444; border-color: #2a2a3e; }
+
+/* ── 촬영 (빨강) ── */
+QPushButton#snapBtn {
+    background-color: #c0203a;
+    color: #ffffff;
+    border: 2px solid #e84060;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+}
+QPushButton#snapBtn:hover   { background-color: #e02040; border-color: #ff7090; }
+QPushButton#snapBtn:pressed { background-color: #901830; border-color: #c0203a; }
+QPushButton#snapBtn:disabled{ background-color: #4a1020; color: #664; border-color: #6a2030; }
+
+/* ── 출력 (파랑) ── */
+QPushButton#printBtn {
+    background-color: #0d3060;
+    color: #ffffff;
+    border: 2px solid #3a80d0;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: bold;
+}
+QPushButton#printBtn:hover  { background-color: #1a4a90; border-color: #60a0ff; }
+QPushButton#printBtn:disabled{ background-color: #0a1a30; color: #445; border-color: #1a2a40; }
+
+/* ── 초기화 (회색) ── */
+QPushButton#resetBtn {
+    background-color: #252535;
+    color: #b0b8c8;
+    border: 2px solid #4a5068;
+    border-radius: 10px;
+    font-size: 13px;
+}
+QPushButton#resetBtn:hover { background-color: #303050; border-color: #7080a0; color: #e0e8ff; }
+
+/* ── 작은 보조 버튼 ── */
+QPushButton#smallBtn {
+    background-color: #1e2a45;
+    color: #aab8d0;
+    border: 2px solid #3a5080;
+    border-radius: 8px;
+    font-size: 12px;
+    padding: 4px 8px;
+}
+QPushButton#smallBtn:hover { background-color: #253560; border-color: #6080c0; color: #ffffff; }
+
+QComboBox {
+    background-color: #1e2a45;
+    color: #dde4f0;
+    border: 2px solid #3a5080;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 28px;
+}
+QComboBox:hover { border-color: #e84060; }
+QComboBox::drop-down { border: none; width: 20px; }
+QComboBox QAbstractItemView {
+    background-color: #1e2a45;
+    color: #dde4f0;
+    border: 1px solid #3a5080;
+    selection-background-color: #304080;
+}
+
+QSpinBox {
+    background-color: #1e2a45;
+    color: #dde4f0;
+    border: 2px solid #3a5080;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 28px;
+}
+QSpinBox:focus { border-color: #e84060; }
+QSpinBox::up-button, QSpinBox::down-button {
+    width: 18px; border: none; background: #253560;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover { background: #e84060; }
+
+QTextEdit {
+    background-color: #1e2a45;
+    color: #dde4f0;
+    border: 2px solid #3a5080;
+    border-radius: 6px;
+    padding: 6px 10px;
+    selection-background-color: #e84060;
+}
+QTextEdit:focus { border-color: #e84060; }
+
+QLineEdit {
+    background-color: #1e2a45;
+    color: #dde4f0;
+    border: 2px solid #3a5080;
+    border-radius: 6px;
+    padding: 6px 10px;
+    min-height: 28px;
+}
+QLineEdit:focus { border-color: #e84060; }
+
+QCheckBox { color: #dde4f0; spacing: 8px; }
+QCheckBox::indicator {
+    width: 16px; height: 16px; border-radius: 4px;
+    border: 2px solid #3a5080; background: #1e2a45;
+}
+QCheckBox::indicator:checked  { background: #e84060; border-color: #e84060; }
+QCheckBox::indicator:hover    { border-color: #e84060; }
+
+QScrollBar:vertical { background: #1e2a45; width: 6px; border-radius: 3px; }
+QScrollBar::handle:vertical { background: #3a5080; border-radius: 3px; min-height: 20px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+"""
+
+
 def open_capture(idx: int):
-    """카메라 캡처 오픈 (macOS는 AVFoundation 고정)."""
     if sys.platform.startswith("darwin"):
-        # AVFoundation로 강제 → OBSENSOR 우회
         return cv2.VideoCapture(idx, cv2.CAP_AVFOUNDATION)
     if sys.platform.startswith("win"):
         return cv2.VideoCapture(idx, cv2.CAP_DSHOW)
     return cv2.VideoCapture(idx)
 
+
+class CountdownOverlay(QtWidgets.QWidget):
+    finished = QtCore.Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+        self._count = 0
+        self._timer = QtCore.QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self.hide()
+
+    def start(self, from_n: int = 3):
+        self._count = from_n
+        self.show()
+        self.update()
+        self._timer.start(1000)
+
+    def _tick(self):
+        self._count -= 1
+        if self._count <= 0:
+            self._timer.stop()
+            self.hide()
+            self.finished.emit()
+        else:
+            self.update()
+
+    def paintEvent(self, event):
+        if self._count <= 0:
+            return
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QtGui.QColor(0, 0, 0, 130))
+        font = QtGui.QFont("Arial", 160, QtGui.QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QtGui.QColor(232, 64, 96))
+        painter.drawText(self.rect(), QtCore.Qt.AlignCenter, str(self._count))
+        painter.end()
+
+
+class FlashOverlay(QtWidgets.QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+        self._opacity = 0.0
+        self._anim = QtCore.QPropertyAnimation(self, b"opacity")
+        self._anim.setDuration(300)
+        self._anim.setStartValue(1.0)
+        self._anim.setEndValue(0.0)
+        self._anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+        self._anim.finished.connect(self.hide)
+        self.hide()
+
+    def get_opacity(self): return self._opacity
+    def set_opacity(self, v): self._opacity = v; self.update()
+    opacity = QtCore.Property(float, get_opacity, set_opacity)
+
+    def flash(self):
+        self.show(); self._anim.stop(); self._opacity = 1.0; self._anim.start()
+
+    def paintEvent(self, event):
+        p = QtGui.QPainter(self)
+        p.fillRect(self.rect(), QtGui.QColor(255, 255, 255, int(self._opacity * 220)))
+        p.end()
+
+
 class BoothCam(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("두잇 영수증 사진관")
-        self.resize(1200, 720)
+        # 세로를 충분히 높게 + 최대화 시작
+        self.resize(1600, 1000)
+        self.setMinimumSize(1200, 800)
+        self.setStyleSheet(APP_STYLE)
 
-        # 경로
         self.base_dir = Path(__file__).resolve().parent
         self.captures_dir = self.base_dir / "captures"
         self.captures_dir.mkdir(parents=True, exist_ok=True)
 
-        # 상태
         self.cap = None
-        self.timer = QtCore.QTimer(self); self.timer.timeout.connect(self._tick)
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self._tick)
         self.mirror = True
         self.last_frame = None
         self.captured_images: list[tuple[Path, object]] = []
         self.max_shots = 2
+        self._counting_down = False
 
-        # 좌: 미리보기
-        self.video = QtWidgets.QLabel("미리보기")
+        # ════════════════════════════════════════
+        # 왼쪽: 카메라 프리뷰
+        # ════════════════════════════════════════
+        self.video_container = QtWidgets.QWidget()
+        self.video_container.setStyleSheet("background:#0a0a18; border-radius:14px;")
+        vc_layout = QtWidgets.QVBoxLayout(self.video_container)
+        vc_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.video = QtWidgets.QLabel("카메라 연결 중...")
         self.video.setAlignment(QtCore.Qt.AlignCenter)
-        self.video.setStyleSheet("background:#222; color:#aaa;")
-        self.video.setMinimumSize(900, 650)
+        self.video.setStyleSheet("background:transparent; color:#444; font-size:18px;")
+        self.video.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        vc_layout.addWidget(self.video)
 
-        # 우: 컨트롤
+        self.countdown    = CountdownOverlay(self.video)
+        self.flash_overlay = FlashOverlay(self.video)
+        self.countdown.finished.connect(self._do_capture)
+
+        # ════════════════════════════════════════
+        # 오른쪽 패널 위젯들
+        # ════════════════════════════════════════
+
+        # 카메라 선택
         self.device_combo = QtWidgets.QComboBox()
-        self.snap_btn  = QtWidgets.QPushButton("촬영 (남은: 2)")
-        self.print_btn = QtWidgets.QPushButton("프린트")
-        self.reset_btn = QtWidgets.QPushButton("초기화")
 
-        # 썸네일(2장): 버튼 폭에 맞춰 가로 확장
-        self.thumb_labels = [QtWidgets.QLabel() for _ in range(2)]
-        for lbl in self.thumb_labels:
-            lbl.setFixedHeight(200)
-            lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            lbl.setStyleSheet("background:#555; border:2px solid #333;")
+        # 카운트다운 스핀박스
+        self.countdown_spin = QtWidgets.QSpinBox()
+        self.countdown_spin.setRange(0, 10)
+        self.countdown_spin.setValue(3)
+        self.countdown_spin.setSuffix(" 초")
+
+        # 남은 촬영 표시
+        self.count_label = QtWidgets.QLabel("남은 촬영: 2장")
+        self.count_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.count_label.setStyleSheet(
+            "color:#e84060; font-size:14px; font-weight:bold;"
+            "background:#200a12; border-radius:6px; padding:6px;"
+        )
+
+        # ── 정사각형 버튼 (120×80) ──
+        BTN_W, BTN_H = 140, 80
+
+        self.snap_btn = QtWidgets.QPushButton("📷\n촬영")
+        self.snap_btn.setObjectName("snapBtn")
+        self.snap_btn.setFixedSize(BTN_W, BTN_H)
+        self.snap_btn.setToolTip("사진 촬영 (Space)")
+
+        self.print_btn = QtWidgets.QPushButton("🖨\n출력")
+        self.print_btn.setObjectName("printBtn")
+        self.print_btn.setFixedSize(BTN_W, BTN_H)
+        self.print_btn.setEnabled(False)
+
+        self.reset_btn = QtWidgets.QPushButton("↺\n초기화")
+        self.reset_btn.setObjectName("resetBtn")
+        self.reset_btn.setFixedSize(BTN_W, BTN_H)
+
+        # 프린터 새로고침 버튼
+        self.refresh_printer_btn = QtWidgets.QPushButton("🔌\n프린터 검색")
+        self.refresh_printer_btn.setObjectName("smallBtn")
+        self.refresh_printer_btn.setFixedSize(BTN_W, BTN_H)
+
+        # ── 썸네일 (오른쪽 패널 상단, 세로로 2장) ──
+        self.thumb_labels = []
+        for i in range(2):
+            lbl = QtWidgets.QLabel(f"사진 {i+1}")
             lbl.setAlignment(QtCore.Qt.AlignCenter)
+            lbl.setStyleSheet(
+                "background:#0a0a18; border:2px dashed #2a3a5e;"
+                "border-radius:8px; color:#3a4a6e; font-size:14px;"
+            )
+            lbl.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+            self.thumb_labels.append(lbl)
 
-        # --- 짧은 문구 입력칸 (오른쪽 컬럼 폭에 맞춤, 2줄 고정) ---
+        # 문구
         self.short_edit = QtWidgets.QTextEdit()
         self.short_edit.setAcceptRichText(False)
         self.short_edit.setWordWrapMode(QtGui.QTextOption.WordWrap)
         self.short_edit.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.short_edit.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.short_edit.setPlaceholderText("영수증 하단 안내 문구를 입력하세요.")
+        self.short_edit.setPlaceholderText("영수증 하단 문구")
         self.short_edit.setPlainText(DEFAULT_SHORT_TEXT)
         self.short_edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-
         fm = self.short_edit.fontMetrics()
-        line_h = fm.lineSpacing()
-        self.short_edit.setFixedHeight(line_h * 2 + 14)  # 정확히 2줄
+        self.short_edit.setFixedHeight(fm.lineSpacing() * 2 + 20)
 
-        self.short_edit.setStyleSheet("""
-        QTextEdit {
-          background: #ffffff;
-          color: #111111;
-          border: 1px solid #666666;
-          border-radius: 6px;
-          padding: 6px 8px;
-        }
-        """)
+        # 로고
+        self.logo_edit = QtWidgets.QLineEdit(DEFAULT_LOGO_PATH)
+        self.logo_btn  = QtWidgets.QPushButton("📁")
+        self.logo_btn.setObjectName("smallBtn")
+        self.logo_btn.setFixedWidth(40)
 
-        # 로고 선택
-        self.logo_edit  = QtWidgets.QLineEdit(DEFAULT_LOGO_PATH)
-        self.logo_btn   = QtWidgets.QPushButton("로고 선택")
-
-        # 옵션: 프린터(USB)
+        # 프린터
+        self.chk_printer    = QtWidgets.QCheckBox("USB 프린터 출력")
+        self.chk_printer.setChecked(True)
         self.chk_auto_reset = QtWidgets.QCheckBox("출력 후 자동 초기화")
         self.chk_auto_reset.setChecked(True)
 
-        # ---- 오른쪽 UI 구성
+        self.copies_combo = QtWidgets.QComboBox()
+        self.copies_combo.addItems([str(i) for i in range(1, 11)])
+        self.copies_combo.setFixedWidth(70)
+
+        # 프린터 포트 콤보
+        self.printer_port_combo = QtWidgets.QComboBox()
+        self.printer_port_combo.addItem("자동 탐색")
+
+        # 상태바
+        self.status = QtWidgets.QLabel("✔ 준비")
+        self.status.setWordWrap(True)
+        self.status.setStyleSheet(
+            "color:#4da6ff; background:#081828; border-radius:6px;"
+            "padding:6px 10px; font-size:12px;"
+        )
+
+        # 프린터 포트 초기 탐색 (self.status 생성 이후)
+        self._refresh_printer_ports()
+
+        # ════════════════════════════════════════
+        # 오른쪽 레이아웃 조립
+        # ════════════════════════════════════════
         right = QtWidgets.QVBoxLayout()
+        right.setSpacing(8)
+        right.setContentsMargins(10, 10, 10, 10)
 
-        dev = QtWidgets.QHBoxLayout()
-        dev.addWidget(QtWidgets.QLabel("장치:"))
-        dev.addWidget(self.device_combo)
-        right.addLayout(dev)
+        # 카메라 선택
+        dev_row = QtWidgets.QHBoxLayout()
+        dev_lbl = QtWidgets.QLabel("카메라:")
+        dev_lbl.setStyleSheet("color:#888; font-size:12px;")
+        dev_row.addWidget(dev_lbl)
+        dev_row.addWidget(self.device_combo, 1)
+        right.addLayout(dev_row)
 
-        right.addWidget(self.snap_btn)
-        right.addWidget(self.print_btn)
-        right.addWidget(self.reset_btn)
-        right.addSpacing(6)
+        # 카운트다운
+        cd_row = QtWidgets.QHBoxLayout()
+        cd_lbl = QtWidgets.QLabel("카운트다운:")
+        cd_lbl.setStyleSheet("color:#888; font-size:12px;")
+        cd_row.addWidget(cd_lbl)
+        cd_row.addStretch()
+        cd_row.addWidget(self.countdown_spin)
+        right.addLayout(cd_row)
 
-        right.addWidget(self.thumb_labels[0])
-        right.addWidget(self.thumb_labels[1])
-        right.addSpacing(6)
+        right.addWidget(self.count_label)
 
-        # --- 내용 입력 (오른쪽 컬럼 풀폭, 버튼/썸네일과 동일 가로) ---
-        # 라벨은 숨기고 입력칸만(요청사항)
+        # 버튼 2×2 그리드
+        btn_grid = QtWidgets.QGridLayout()
+        btn_grid.setSpacing(8)
+        btn_grid.addWidget(self.snap_btn,            0, 0)
+        btn_grid.addWidget(self.reset_btn,           0, 1)
+        btn_grid.addWidget(self.print_btn,           1, 0)
+        btn_grid.addWidget(self.refresh_printer_btn, 1, 1)
+        right.addLayout(btn_grid)
+
+        # 구분선
+        def _sep():
+            f = QtWidgets.QFrame()
+            f.setFrameShape(QtWidgets.QFrame.HLine)
+            f.setStyleSheet("color:#2a3a5e; margin:2px 0;")
+            return f
+
+        right.addWidget(_sep())
+
+        # 썸네일 2장 (세로)
+        thumb_lbl = QtWidgets.QLabel("촬영 사진")
+        thumb_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
+        right.addWidget(thumb_lbl)
+        for lbl in self.thumb_labels:
+            right.addWidget(lbl, 1)   # stretch=1 → 남은 공간 분배
+
+        right.addWidget(_sep())
+
+        # 설정 영역
+        msg_lbl = QtWidgets.QLabel("영수증 문구")
+        msg_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
+        right.addWidget(msg_lbl)
         right.addWidget(self.short_edit)
 
-        form = QtWidgets.QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(8)
-        form.setLabelAlignment(QtCore.Qt.AlignTop | QtCore.Qt.AlignLeft)
-        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
-
-        row_logo = QtWidgets.QHBoxLayout()
-        row_logo.addWidget(self.logo_edit)
-        row_logo.addWidget(self.logo_btn)
-        form.addRow("로고 파일(영수증용):", row_logo)
-
-        right.addLayout(form)
+        logo_lbl = QtWidgets.QLabel("로고 파일")
+        logo_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
+        right.addWidget(logo_lbl)
+        logo_row = QtWidgets.QHBoxLayout()
+        logo_row.addWidget(self.logo_edit)
+        logo_row.addWidget(self.logo_btn)
+        right.addLayout(logo_row)
 
         printer_row = QtWidgets.QHBoxLayout()
-
-        self.chk_printer = QtWidgets.QCheckBox("프린터로 출력 (USB)")
-        self.chk_printer.setChecked(True)
         printer_row.addWidget(self.chk_printer)
-        
-        printer_row.addStretch(1)
-        
-        printer_row.addWidget(QtWidgets.QLabel("인원수"))
-        self.copies_combo = QtWidgets.QComboBox()
-        self.copies_combo.addItems([str(i) for i in range(1, 11)])  # 1~10
-        self.copies_combo.setCurrentText("1")
-        self.copies_combo.setFixedWidth(70)
+        printer_row.addStretch()
+        copies_lbl = QtWidgets.QLabel("매수:")
+        copies_lbl.setStyleSheet("color:#888; font-size:12px;")
+        printer_row.addWidget(copies_lbl)
         printer_row.addWidget(self.copies_combo)
-        
         right.addLayout(printer_row)
-
-        # USB 출력 체크/옵션
         right.addWidget(self.chk_auto_reset)
 
-        self.status = QtWidgets.QLabel("상태: 준비")
-        self.status.setStyleSheet("color:#08c;")
-        right.addSpacing(6)
+        # 프린터 포트
+        port_row = QtWidgets.QHBoxLayout()
+        port_lbl = QtWidgets.QLabel("포트:")
+        port_lbl.setStyleSheet("color:#888; font-size:12px;")
+        port_row.addWidget(port_lbl)
+        port_row.addWidget(self.printer_port_combo, 1)
+        right.addLayout(port_row)
+
         right.addWidget(self.status)
 
-        # --- 루트 레이아웃 (왼쪽=미리보기, 오른쪽=컨트롤 고정폭) ---
+        # ════════════════════════════════════════
+        # 루트 레이아웃
+        # ════════════════════════════════════════
         root = QtWidgets.QHBoxLayout(self)
-        root.addWidget(self.video, 1)
+        root.setContentsMargins(14, 14, 14, 14)
+        root.setSpacing(14)
+        root.addWidget(self.video_container, 1)
 
-        wrap = QtWidgets.QWidget()
-        wrap.setLayout(right)
-        wrap.setFixedWidth(330)
-        root.addWidget(wrap, 0)
+        right_widget = QtWidgets.QWidget()
+        right_widget.setLayout(right)
+        right_widget.setFixedWidth(320)
+        right_widget.setStyleSheet(
+            "QWidget { background:#141428; border-radius:14px; }"
+        )
+        root.addWidget(right_widget, 0)
 
-        # 이벤트
+        # ── 이벤트 ──
         self.device_combo.activated.connect(self._change_device)
-        self.snap_btn.clicked.connect(self._capture_photo)
+        self.snap_btn.clicked.connect(self._start_countdown)
         self.print_btn.clicked.connect(self._print_both)
         self.reset_btn.clicked.connect(self._reset_all)
         self.logo_btn.clicked.connect(self._choose_logo)
-        QtGui.QShortcut(QtGui.QKeySequence("Space"), self, activated=self._capture_photo)
+        self.refresh_printer_btn.clicked.connect(self._refresh_printer_ports)
+        QtGui.QShortcut(QtGui.QKeySequence("Space"), self, activated=self._start_countdown)
 
-        # 시작
+        # ── 카메라 시작 ──
         found = self._scan_0_1()
         if found:
             default = 1 if 1 in found else 0
@@ -196,25 +496,38 @@ class BoothCam(QtWidgets.QWidget):
         else:
             self._set_status("사용 가능한 카메라 없음", err=True)
 
-    # ---------- 카메라 ----------
+    # ── 프린터 포트 새로고침 ──
+    def _refresh_printer_ports(self):
+        self.printer_port_combo.clear()
+        self.printer_port_combo.addItem("자동 탐색", userData=None)
+        ports = list_usb_candidate_ports()
+        for p in ports:
+            self.printer_port_combo.addItem(p, userData=p)
+        if ports:
+            self._set_status(f"프린터 포트 발견: {ports}")
+        else:
+            self._set_status("연결된 프린터 포트 없음", err=True)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.countdown.setGeometry(0, 0, self.video.width(), self.video.height())
+        self.flash_overlay.setGeometry(0, 0, self.video.width(), self.video.height())
+
+    # ── 카메라 ──
     def _scan_0_1(self):
         self.device_combo.clear()
         found = []
         for i in (0, 1):
             cap = open_capture(i); ok, _ = cap.read(); cap.release()
             if ok: found.append(i)
-        if found:
-            for i in found: self.device_combo.addItem(str(i))
-            self._set_status(f"검색: {found}")
-        else:
-            self.device_combo.addItem("0")
+        for i in (found if found else [0]):
+            self.device_combo.addItem(str(i))
+        self._set_status(f"카메라 검색 완료: {found}" if found else "카메라 없음")
         return found
 
     def _change_device(self, _):
-        try:
-            idx = int(self.device_combo.currentText())
-        except ValueError:
-            idx = 0
+        try: idx = int(self.device_combo.currentText())
+        except ValueError: idx = 0
         self._open_cap(idx)
 
     def _open_cap(self, idx: int):
@@ -226,176 +539,185 @@ class BoothCam(QtWidgets.QWidget):
             self.cap.release(); self.cap = None
             self._set_status(f"장치 {idx} 열기 실패", err=True); return
         self.timer.start(33)
-        self._set_status(f"장치 {idx} 연결됨 (Space=촬영)")
+        self._set_status(f"장치 {idx} 연결됨  ·  Space 또는 촬영 버튼")
 
     def _tick(self):
         if not self.cap: return
         ok, frame = self.cap.read()
         if not ok:
-            self._set_status("프레임 읽기 실패", err=True); return
-        if self.mirror:
-            frame = cv2.flip(frame, 1)
+            self.timer.stop()
+            self._set_status("카메라 연결 끊어짐", err=True); return
+        if self.mirror: frame = cv2.flip(frame, 1)
         self.last_frame = frame
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
-        qimg = QtGui.QImage(rgb.data, w, h, ch*w, QtGui.QImage.Format.Format_RGB888)
+        qimg = QtGui.QImage(rgb.data, w, h, ch * w, QtGui.QImage.Format.Format_RGB888)
         pix = QtGui.QPixmap.fromImage(qimg).scaled(
             self.video.width(), self.video.height(),
-            QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
-        )
+            QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
         self.video.setPixmap(pix)
+        self.countdown.setGeometry(0, 0, self.video.width(), self.video.height())
+        self.flash_overlay.setGeometry(0, 0, self.video.width(), self.video.height())
 
-    # ---------- 촬영/썸네일 ----------
-    def _next_path(self, ts: str, idx: int) -> Path:
-        return self.captures_dir / f"photo_{ts}_{idx+1:02d}.png"
-
-    def _capture_photo(self):
+    # ── 카운트다운 / 촬영 ──
+    def _start_countdown(self):
         if self.last_frame is None:
-            self._set_status("캡처할 프레임이 없어요.", err=True); return
+            self._set_status("프레임 없음", err=True); return
         if len(self.captured_images) >= self.max_shots:
-            self._set_status("촬영 기회 소진", err=True); return
-        ts = time.strftime("%Y%m%d_%H%M")
-        path = self._next_path(ts, len(self.captured_images))
+            self._set_status("이미 2장 촬영됨. 초기화 후 다시 찍으세요.", err=True); return
+        if self._counting_down: return
+        self._counting_down = True
+        self.snap_btn.setEnabled(False)
+        sec = self.countdown_spin.value()
+        if sec == 0: self._do_capture()
+        else: self.countdown.start(sec)
+
+    def _do_capture(self):
+        self._counting_down = False
+        if self.last_frame is None:
+            self.snap_btn.setEnabled(True); return
+        self.flash_overlay.flash()
+        ts   = time.strftime("%Y%m%d_%H%M")
+        path = self.captures_dir / f"photo_{ts}_{len(self.captured_images)+1:02d}.png"
         if cv2.imwrite(str(path), self.last_frame):
             self.captured_images.append((path, self.last_frame.copy()))
             self._update_thumbs()
             remain = self.max_shots - len(self.captured_images)
-            self.snap_btn.setText(f"촬영 (남은: {remain})")
-            self._set_status(f"저장됨: {path.name}")
+            self.count_label.setText(f"남은 촬영: {remain}장")
+            if remain == 0:
+                self.print_btn.setEnabled(True)
+                self._set_status("2장 촬영 완료! 출력 버튼을 누르세요.")
+            else:
+                self._set_status(f"저장됨: {path.name}")
         else:
             self._set_status("저장 실패", err=True)
+        if len(self.captured_images) < self.max_shots:
+            self.snap_btn.setEnabled(True)
 
     def _update_thumbs(self):
         for i, lbl in enumerate(self.thumb_labels):
             if i < len(self.captured_images):
                 frame = self.captured_images[i][1]
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb   = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb.shape
-                qimg = QtGui.QImage(rgb.data, w, h, ch*w, QtGui.QImage.Format.Format_RGB888)
+                qimg = QtGui.QImage(rgb.data, w, h, ch * w, QtGui.QImage.Format.Format_RGB888)
+                tw = max(lbl.width(),  100)
+                th = max(lbl.height(), 100)
                 pix = QtGui.QPixmap.fromImage(qimg).scaled(
-                    lbl.width(), lbl.height(),
-                    QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
-                )
+                    tw, th, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
                 lbl.setPixmap(pix)
-                lbl.setStyleSheet("background:#555; border:3px solid #f0f000;")
+                lbl.setText("")
+                lbl.setStyleSheet(
+                    "background:#0a0a18; border:2px solid #e84060; border-radius:8px;")
             else:
-                lbl.clear()
-                lbl.setStyleSheet("background:#555; border:2px solid #333;")
+                lbl.clear(); lbl.setText(f"사진 {i+1}")
+                lbl.setStyleSheet(
+                    "background:#0a0a18; border:2px dashed #2a3a5e;"
+                    "border-radius:8px; color:#3a4a6e; font-size:14px;")
 
-    # ---------- 파일/다이얼로그 ----------
     def _choose_logo(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "로고 선택", os.getcwd(), "Images (*.png *.jpg *.jpeg *.bmp)"
-        )
-        if path:
-            self.logo_edit.setText(path)
+            self, "로고 선택", os.getcwd(), "Images (*.png *.jpg *.jpeg *.bmp)")
+        if path: self.logo_edit.setText(path)
 
-    # ---------- 프린트(합성+저장+옵션 출력) ----------
+    # ── 출력 ──
     def _print_both(self):
         if len(self.captured_images) < self.max_shots:
-            self._set_status(f"사진을 {self.max_shots}장 모두 촬영하세요.", err=True)
-            return
+            self._set_status(f"사진을 {self.max_shots}장 모두 촬영하세요.", err=True); return
 
         QtGui.QGuiApplication.inputMethod().commit()
         QtWidgets.QApplication.processEvents()
 
-        short_txt = (self.short_edit.toPlainText().strip() or DEFAULT_SHORT_TEXT)
+        short_txt = self.short_edit.toPlainText().strip() or DEFAULT_SHORT_TEXT
 
-        # 로고 경로 정규화 (상대경로 → 앱 폴더 기준)
-        logo_path = (self.logo_edit.text().strip() or DEFAULT_LOGO_PATH)
+        logo_path = self.logo_edit.text().strip() or DEFAULT_LOGO_PATH
         lp = Path(logo_path)
-        if not lp.is_absolute():
-            lp = self.base_dir / lp
-        logo_path = str(lp)
-        if not Path(logo_path).exists():
-            self._set_status(f"로고 파일을 찾을 수 없습니다: {logo_path}", err=True)
+        if not lp.is_absolute(): lp = self.base_dir / lp
+        if not lp.exists():
+            self._set_status(f"로고 파일 없음: {lp}", err=True); return
 
-        # 사진 PIL 변환
-        photos_pil: list[Image.Image] = []
-        for _, frame_bgr in self.captured_images[:2]:
-            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(rgb)
-            photos_pil.append(pil_img)
+        photos_pil = []
+        for _, bgr in self.captured_images[:2]:
+            photos_pil.append(Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
 
-        date_str = time.strftime("%Y.%m.%d")
-
-        # 영수증 합성 PNG (컬러 유지)
+        self._set_status("합성 중...")
+        QtWidgets.QApplication.processEvents()
         try:
             receipt = compose_receipt_two_photos(
                 photos_pil=photos_pil,
-                paper_width=PAPER_WIDTH,
-                margin=DEFAULT_MARGIN,
-                gap=DEFAULT_GAP,
-                photo_gap=DEFAULT_PHOTO_GAP,
-                letterbox_pad=DEFAULT_LETTERBOX,
-                logo_path=logo_path,
-                logo_max_h=DEFAULT_LOGO_MAX_H,
-                receipt_text=short_txt,
-                font_path=DEFAULT_FONT_PATH,
-                date_text=date_str,
+                paper_width=PAPER_WIDTH, margin=DEFAULT_MARGIN,
+                gap=DEFAULT_GAP, photo_gap=DEFAULT_PHOTO_GAP,
+                letterbox_pad=DEFAULT_LETTERBOX, logo_path=str(lp),
+                logo_max_h=DEFAULT_LOGO_MAX_H, receipt_text=short_txt,
+                font_path=DEFAULT_FONT_PATH, date_text=time.strftime("%Y.%m.%d"),
             )
         except Exception as e:
-            self._set_status(f"합성 실패: {e}", err=True)
-            return
+            self._set_status(f"합성 실패: {e}", err=True); return
 
-        ts = time.strftime("%Y%m%d_%H%M")
+        ts       = time.strftime("%Y%m%d_%H%M")
         out_path = self.captures_dir / f"RECEIPT_{ts}.png"
         try:
             receipt.save(out_path)
         except Exception as e:
-            self._set_status(f"저장 실패: {e}", err=True)
-            return
+            self._set_status(f"저장 실패: {e}", err=True); return
+        self._set_status(f"저장됨: {out_path.name}")
 
-        self._set_status(f"저장됨: {out_path.resolve()}")
-
-        # USB 프린터 출력
-        success_cnt = 0 
-        copies = 1 
+        success_cnt, copies = 0, 1
         if self.chk_printer.isChecked():
-            copies = int(self.copies_combo.currentText()) if hasattr(self, "copies_combo") else 1
+            copies   = int(self.copies_combo.currentText())
+            # 선택된 포트 (None이면 자동탐색)
+            sel_port = self.printer_port_combo.currentData()
             last_msg = ""
+            self._set_status(f"출력 중... (0/{copies})")
+            QtWidgets.QApplication.processEvents()
             for i in range(copies):
-                ok, msg = print_image_usb(
-                    str(out_path),
-                    paper_width_px=PAPER_WIDTH,   # 576 고정
-                )
+                ok, msg = print_image_usb(str(out_path),
+                                          device=sel_port,
+                                          paper_width_px=PAPER_WIDTH)
                 last_msg = msg
                 if ok:
                     success_cnt += 1
+                    self._set_status(f"출력 중... ({success_cnt}/{copies})")
+                    QtWidgets.QApplication.processEvents()
                 else:
-                    # 한 장이라도 실패하면 바로 알리고 중단 (원하면 계속 시도하도록 바꿔도 됨)
-                    self._set_status(f"{i+1}번째 출력 실패: {msg}", err=True)
+                    self._set_status(f"{i+1}번째 실패: {msg}", err=True)
                     break
-
             if success_cnt == copies:
-                self._set_status(f"프린터 출력 완료 ({success_cnt}장)")
+                self._set_status(f"출력 완료 ({success_cnt}장)")
             else:
-                self._set_status(f"프린터 일부만 출력됨 ({success_cnt}/{copies}) | {last_msg}", err=True)
+                self._set_status(f"일부 실패 ({success_cnt}/{copies}) | {last_msg}", err=True)
+
         if self.chk_auto_reset.isChecked():
-        # 프린터를 안 썼으면 바로 초기화, 썼으면 '모두 성공'한 경우에만 초기화
             printed_ok = (not self.chk_printer.isChecked()) or (success_cnt == copies)
             if printed_ok:
-                QtCore.QTimer.singleShot(800, self._reset_all)  # 0.4초 뒤 초기화(컷팅 여유)
-    # ---------- 초기화 / 공통 ----------
+                QtCore.QTimer.singleShot(800, self._reset_all)
+
     def _reset_all(self):
         self.captured_images.clear()
-        self.snap_btn.setText(f"촬영 (남은: {self.max_shots})")
+        self.snap_btn.setEnabled(True)
+        self.print_btn.setEnabled(False)
+        self.count_label.setText(f"남은 촬영: {self.max_shots}장")
         self._update_thumbs()
-        self._set_status("초기화 완료")
+        self._set_status("초기화 완료.")
 
-    def _set_status(self, text: str, err: bool=False):
-        self.status.setText(f"상태: {text}")
-        self.status.setStyleSheet("color:#d33;" if err else "color:#08c;")
+    def _set_status(self, text: str, err: bool = False):
+        self.status.setText(f"{'⚠ ' if err else '✔ '}{text}")
+        self.status.setStyleSheet(
+            "color:#ff7070; background:#200808; border-radius:6px; padding:6px 10px; font-size:12px;"
+            if err else
+            "color:#4da6ff; background:#081828; border-radius:6px; padding:6px 10px; font-size:12px;"
+        )
 
-    def closeEvent(self, e: QtGui.QCloseEvent):
+    def closeEvent(self, e):
         try:
             self.timer.stop()
-            if self.cap:
-                self.cap.release()
+            if self.cap: self.cap.release()
         finally:
             super().closeEvent(e)
 
+
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
-    w = BoothCam(); w.show()
+    w = BoothCam()
+    w.show()
     sys.exit(app.exec())

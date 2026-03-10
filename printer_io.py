@@ -1,117 +1,42 @@
-# printer_io.py (USB 전용 · 최대 화질 전처리)
+# printer_io.py — ESC/POS USB 프린터 범용 출력
+# 지원: CDC-ACM 시리얼, GS v 0 래스터, ESC * 비트이미지, 다중 baudrate 자동 시도
 from __future__ import annotations
 from typing import Tuple, Optional, List
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
-import glob, os
+import glob, os, time
 
-# ──────────────────────────────────────────────────────────────
-# 선택 의존성: pyserial (USB 출력용)
-#   pip install pyserial
-# ──────────────────────────────────────────────────────────────
 HAVE_PYSERIAL = False
-Serial = None
+Serial     = None
 list_ports = None
 try:
     from serial import Serial as _Serial
     from serial.tools import list_ports as _list_ports
-    Serial = _Serial
+    Serial     = _Serial
     list_ports = _list_ports
     HAVE_PYSERIAL = True
 except Exception:
     pass
 
+# ESC/POS 프린터가 공통으로 시도할 baudrate 목록 (빠른 것 먼저)
+_BAUDRATES = [115200, 38400, 19200, 9600]
+
 
 # =============================================================
-# 유틸
+# 이미지 전처리
 # =============================================================
 def _gamma_lut(gamma: float) -> list[int]:
-    """0..255 감마 LUT"""
     gamma = max(0.1, float(gamma))
-    return [min(255, max(0, int(((i / 255.0) ** (1.0 / gamma)) * 255 + 0.5))) for i in range(256)]
+    return [min(255, max(0, int(((i / 255.0) ** (1.0 / gamma)) * 255 + 0.5)))
+            for i in range(256)]
 
 
 def _ensure_multiple_of_8(w: int) -> int:
-    """ESC/POS 래스터는 가로 픽셀이 8의 배수여야 안정적."""
     return (w // 8) * 8
 
 
-# =============================================================
-# 전처리 (최고 화질 권장 프로파일)
-# =============================================================
 def _prep_image_1bpp(
-    im: Image.Image,
-    target_width: int,
-    *,
-    profile: str = "photo",            # "photo" | "text" | "qr"
-    # 공통 튜닝 값 (photo 기준; 필요시 조절)
-    autocontrast_cutoff: int = 2,      # 0~3% 권장 (끝단 확장)
-    gamma: float = 0.90,               # <1.0 이면 중간톤 진해져 질감↑
-    sharpness: float = 1.35,           # 1.1~1.5 정도
-    unsharp_radius: float = 1.0,       # 언샤프 마스크 반경
-    unsharp_percent: int = 120,        # 80~160
-    unsharp_threshold: int = 3,        # 노이즈 억제
-    contrast: float = 1.08,            # 약간만
-    brightness: float = 1.00,          # 보통 1.0
-    ordered_dither: bool = False,      # True면 Bayer(Ordered) 디더; 사진은 FS 권장
-    threshold: int = 160,              # profile="text"/"qr" 에서 사용
-) -> Image.Image:
-    """
-    흐름:
-      1) Grayscale
-      2) LANCZOS 리사이즈(가로 8배수 보정)
-      3) AutoContrast / Gamma / Contrast / Brightness
-      4) UnsharpMask + Sharpness
-      5) 1bpp 변환 (photo: 디더, text/qr: 임계값)
-    """
-    g = im.convert("L")
-
-    # 2) 목표 폭(점수폭)에 정확히 맞춤
-    if target_width:
-        tw = _ensure_multiple_of_8(int(target_width))
-        if g.width != tw:
-            ratio = tw / g.width
-            g = g.resize((tw, max(1, int(g.height * ratio))), Image.LANCZOS)
-
-    # 3) 톤 보정
-    if autocontrast_cutoff > 0:
-        g = ImageOps.autocontrast(g, cutoff=int(autocontrast_cutoff))
-    if abs(gamma - 1.0) > 1e-3:
-        g = g.point(_gamma_lut(gamma))
-    if abs(contrast - 1.0) > 1e-3:
-        g = ImageEnhance.Contrast(g).enhance(float(contrast))
-    if abs(brightness - 1.0) > 1e-3:
-        g = ImageEnhance.Brightness(g).enhance(float(brightness))
-
-    # 4) 선명도 보정 (언샤프 → 샤프니스)
-    if unsharp_percent > 0 and unsharp_radius > 0:
-        g = g.filter(ImageFilter.UnsharpMask(
-            radius=float(unsharp_radius),
-            percent=int(unsharp_percent),
-            threshold=int(unsharp_threshold),
-        ))
-    if abs(sharpness - 1.0) > 1e-3:
-        g = ImageEnhance.Sharpness(g).enhance(float(sharpness))
-
-    # 5) 1비트 변환
-    if profile == "photo":
-        # 사진은 FS 디더가 질감/톤 그라데이션을 가장 부드럽게 만듦
-        if ordered_dither:
-            # Ordered(바이어) 디더는 질감이 일정한 패턴으로, 사진에선 취향 차이
-            return g.convert("1", dither=Image.Dither.ORDERED)
-        return g.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
-
-    # 텍스트/QR은 가장 또렷함이 중요 → 임계값
-    t = max(0, min(255, int(threshold)))
-    return g.point(lambda x: 0 if x < t else 255, mode="1")
-
-
-def _pil_to_raster_bytes_bw(
-    img: Image.Image,
-    paper_width_px: int,
-    *,
-    # 전처리 프로파일
-    profile: str = "photo",            # "photo" | "text" | "qr"
-    # 세부 튜닝 (photo 기본값으로 최대 화질)
+    im: Image.Image, target_width: int, *,
+    profile: str = "photo",
     autocontrast_cutoff: int = 2,
     gamma: float = 0.90,
     sharpness: float = 1.35,
@@ -122,119 +47,142 @@ def _pil_to_raster_bytes_bw(
     brightness: float = 1.00,
     ordered_dither: bool = False,
     threshold: int = 160,
-) -> bytes:
-    """
-    이미지를 용지폭에 맞춰 1bpp로 만든 뒤 ESC/POS 'GS v 0' 래스터 포맷으로 변환.
-    (m=0: 1x 밀도. 스케일을 키우는 m=1~3은 해상도↑가 아니라 확대이므로 품질 개선 X)
-    """
-    bw = _prep_image_1bpp(
-        img,
-        paper_width_px,
-        profile=profile,
-        autocontrast_cutoff=autocontrast_cutoff,
-        gamma=gamma,
-        sharpness=sharpness,
-        unsharp_radius=unsharp_radius,
-        unsharp_percent=unsharp_percent,
-        unsharp_threshold=unsharp_threshold,
-        contrast=contrast,
-        brightness=brightness,
-        ordered_dither=ordered_dither,
-        threshold=threshold,
-    )
+) -> Image.Image:
+    g = im.convert("L")
+    if target_width:
+        tw = _ensure_multiple_of_8(int(target_width))
+        if g.width != tw:
+            g = g.resize((tw, max(1, int(g.height * tw / g.width))), Image.LANCZOS)
+    if autocontrast_cutoff > 0:
+        g = ImageOps.autocontrast(g, cutoff=int(autocontrast_cutoff))
+    if abs(gamma - 1.0) > 1e-3:
+        g = g.point(_gamma_lut(gamma))
+    if abs(contrast - 1.0) > 1e-3:
+        g = ImageEnhance.Contrast(g).enhance(float(contrast))
+    if abs(brightness - 1.0) > 1e-3:
+        g = ImageEnhance.Brightness(g).enhance(float(brightness))
+    if unsharp_percent > 0 and unsharp_radius > 0:
+        g = g.filter(ImageFilter.UnsharpMask(
+            radius=float(unsharp_radius),
+            percent=int(unsharp_percent),
+            threshold=int(unsharp_threshold),
+        ))
+    if abs(sharpness - 1.0) > 1e-3:
+        g = ImageEnhance.Sharpness(g).enhance(float(sharpness))
+    if profile == "photo":
+        if ordered_dither:
+            return g.convert("1", dither=Image.Dither.ORDERED)
+        return g.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
+    t = max(0, min(255, int(threshold)))
+    return g.point(lambda x: 0 if x < t else 255, mode="1")
 
+
+# =============================================================
+# ESC/POS 인코딩 — GS v 0 (래스터, 대부분 프린터 지원)
+# =============================================================
+def _encode_raster(bw: Image.Image) -> bytes:
     width, height = bw.size
     row_bytes = (width + 7) // 8
     data = bytearray(row_bytes * height)
-
     px = bw.load()
     idx = 0
     for y in range(height):
-        byte = 0
-        bit = 0
+        byte, bit = 0, 0
         for x in range(width):
-            # '1' 모드: 0=검정, 255=흰색
             is_black = 1 if px[x, y] == 0 else 0
             byte = (byte << 1) | is_black
             bit += 1
             if bit == 8:
-                data[idx] = byte
-                idx += 1
-                byte = 0
-                bit = 0
-        if bit != 0:
-            byte <<= (8 - bit)
-            data[idx] = byte
-            idx += 1
-
-    # ESC/POS Raster Bit Image 헤더 (m=0)
-    xL = row_bytes & 0xFF
-    xH = (row_bytes >> 8) & 0xFF
-    yL = height & 0xFF
-    yH = (height >> 8) & 0xFF
-    header = bytes([0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH])
-    return header + bytes(data)
+                data[idx] = byte; idx += 1
+                byte, bit = 0, 0
+        if bit:
+            byte <<= (8 - bit); data[idx] = byte; idx += 1
+    xL = row_bytes & 0xFF;  xH = (row_bytes >> 8) & 0xFF
+    yL = height    & 0xFF;  yH = (height    >> 8) & 0xFF
+    return bytes([0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH]) + bytes(data)
 
 
 # =============================================================
-# USB 출력
+# ESC/POS 인코딩 — ESC * (비트이미지, 오래된 프린터 호환)
+# =============================================================
+def _encode_esc_star(bw: Image.Image) -> bytes:
+    """
+    ESC * m nL nH data  (m=33: 24-dot double density)
+    24줄씩 잘라 전송 → 거의 모든 ESC/POS 기기에서 동작.
+    """
+    width, height = bw.size
+    px     = bw.load()
+    result = bytearray()
+    result += b"\x1B\x33\x00"   # ESC 3 0 → 줄간격 0 (이미지 사이 틈 없애기)
+
+    for y_base in range(0, height, 24):
+        # ESC * 33 nL nH
+        nL = width & 0xFF
+        nH = (width >> 8) & 0xFF
+        result += bytes([0x1B, 0x2A, 33, nL, nH])
+        for x in range(width):
+            for byte_idx in range(3):       # 3바이트 = 24도트
+                byte = 0
+                for bit in range(8):
+                    y = y_base + byte_idx * 8 + bit
+                    if y < height and px[x, y] == 0:
+                        byte |= (1 << (7 - bit))
+                result.append(byte)
+        result += b"\x0A"                   # LF (다음 줄)
+
+    result += b"\x1B\x32"                  # ESC 2 → 줄간격 기본값 복구
+    return bytes(result)
+
+
+# =============================================================
+# 포트 탐색
 # =============================================================
 def list_usb_candidate_ports() -> List[str]:
-    """플랫폼 공통 CDC/시리얼 장치 경로 후보 나열."""
     ports: List[str] = []
     if HAVE_PYSERIAL and list_ports:
         try:
             ports = [p.device for p in list_ports.comports() if p.device]
         except Exception:
             ports = []
-
-    # pyserial 탐색이 비어 있으면 유닉스 계열 경로 스캔
     if not ports:
-        ports.extend(glob.glob("/dev/tty.usbmodem*"))
-        ports.extend(glob.glob("/dev/tty.usbserial*"))
-        ports.extend(glob.glob("/dev/ttyUSB*"))
-
-    # 중복 제거(순서 유지)
-    seen = set()
-    uniq = []
-    for p in ports:
-        if p not in seen:
-            uniq.append(p)
-            seen.add(p)
-    return uniq
+        ports += glob.glob("/dev/tty.usbmodem*")
+        ports += glob.glob("/dev/tty.usbserial*")
+        ports += glob.glob("/dev/ttyUSB*")
+        ports += glob.glob("/dev/ttyACM*")
+        if os.name == "nt":
+            # Windows COM 포트는 pyserial로만 탐색 가능
+            pass
+    seen: set = set()
+    return [p for p in ports if not (p in seen or seen.add(p))]  # type: ignore[func-returns-value]
 
 
-def _serial_write_all(ser, payload: bytes, chunk: int = 2048) -> None:
-    """큰 이미지를 안정적으로 전송하기 위해 청크 분할."""
-    for i in range(0, len(payload), chunk):
-        ser.write(payload[i:i + chunk])
+# =============================================================
+# 시리얼 전송
+# =============================================================
+def _write_chunked(ser, data: bytes, chunk: int = 2048) -> None:
+    for i in range(0, len(data), chunk):
+        ser.write(data[i:i + chunk])
+        ser.flush()
 
 
-def _try_set_density_common(ser) -> None:
-    """
-    몇몇 EPSON-호환기기에서 먹는 인쇄 품질(밀도/속도) 힌트 명령들.
-    기종마다 무시될 수 있음(안전).
-    """
-    try:
-        # ESC 7: 일반적인 프린트 속도/밀도 관련 (기종에 따라 무시)
-        # ser.write(b"\x1B\x37\x07\xFF")  # 예시: 일부 프린터에서 진하게
-        # GS ( E: 인쇄 모드 파라미터 (EPSON 확장) - 모델에 따라 무시/오동작 가능 → 보수적으로 주석
-        # ser.write(b"\x1D\x28\x45\x02\x00\x00\x00")  # 샘플
-        pass
-    except Exception:
-        pass
+def _try_open_serial(dev: str, baudrate: int):
+    """Serial 열기. timeout/write_timeout 모두 설정."""
+    return Serial(dev, baudrate=baudrate, timeout=3, write_timeout=5,
+                  xonxoff=False, rtscts=False, dsrdtr=False)
 
 
+# =============================================================
+# 메인 출력 함수
+# =============================================================
 def print_image_usb(
     image_path: str,
-    device: Optional[str] = None,      # 예) '/dev/tty.usbmodem1101'; None이면 자동탐색
-    baudrate: int = 115200,
-    paper_width_px: int = 576,         # 80mm=576, 58mm=384
+    device: Optional[str] = None,
+    baudrate: int = 0,               # 0 = 자동 시도
+    paper_width_px: int = 576,
     do_cut: bool = True,
-    feed_after: int = 1,
+    feed_after: int = 3,
     *,
-    # 품질 프로파일/튜닝 (photo가 최대 화질 추천)
-    profile: str = "photo",            # "photo" | "text" | "qr"
+    profile: str = "photo",
     autocontrast_cutoff: int = 2,
     gamma: float = 0.90,
     sharpness: float = 1.35,
@@ -247,74 +195,89 @@ def print_image_usb(
     threshold: int = 160,
 ) -> Tuple[bool, str]:
     """
-    USB(시리얼) ESC/POS 프린터로 이미지 출력 (pyserial 직접 전송).
-    드라이버 없이도 CDC-ACM 장치로 잡히면 동작 가능.
+    ESC/POS USB 프린터로 이미지 출력.
+    - 포트 자동탐색 (모든 후보 순서대로 시도)
+    - baudrate 자동 시도 (115200 → 38400 → 19200 → 9600)
+    - GS v 0 (래스터) 실패 시 ESC * (비트이미지) 재시도
     """
     if not HAVE_PYSERIAL or Serial is None:
-        return False, "pyserial이 설치되지 않았습니다. (pip install pyserial)"
+        return False, "pyserial 미설치. (pip install pyserial)"
 
     try:
         img = Image.open(image_path)
     except Exception as e:
         return False, f"이미지 열기 실패: {e}"
 
+    # 이미지 전처리
     try:
-        data = _pil_to_raster_bytes_bw(
-            img,
-            paper_width_px,
+        bw = _prep_image_1bpp(
+            img, paper_width_px,
             profile=profile,
             autocontrast_cutoff=autocontrast_cutoff,
-            gamma=gamma,
-            sharpness=sharpness,
+            gamma=gamma, sharpness=sharpness,
             unsharp_radius=unsharp_radius,
             unsharp_percent=unsharp_percent,
             unsharp_threshold=unsharp_threshold,
-            contrast=contrast,
-            brightness=brightness,
-            ordered_dither=ordered_dither,
-            threshold=threshold,
+            contrast=contrast, brightness=brightness,
+            ordered_dither=ordered_dither, threshold=threshold,
         )
+        raster_data   = _encode_raster(bw)
+        esc_star_data = _encode_esc_star(bw)
     except Exception as e:
         return False, f"이미지 변환 실패: {e}"
 
-    # 환경변수로 기본 포트/baud 설정 가능
-    env_dev = os.environ.get("PRINTER_DEVICE")
+    # 포트 목록 결정
+    env_dev  = os.environ.get("PRINTER_DEVICE")
     env_baud = os.environ.get("PRINTER_BAUDRATE")
     if env_baud:
-        try:
-            baudrate = int(env_baud)
-        except ValueError:
-            pass
+        try: baudrate = int(env_baud)
+        except ValueError: pass
 
-    # 장치 자동 탐색
     dev = device or env_dev
-    if not dev:
-        cands = list_usb_candidate_ports()
-        if not cands:
-            return False, "USB 프린터 포트를 찾지 못했습니다. (mac=/dev/tty.usb*, win=COM3 등)"
-        dev = cands[0]
+    if dev:
+        candidates = [dev]
+    else:
+        candidates = list_usb_candidate_ports()
+        if not candidates:
+            return False, "USB 프린터 포트를 찾지 못했습니다."
 
-    try:
-        # 많은 ESC/POS USB-CDC 장치는 baudrate 무시(OK). 그래도 통상값으로 설정.
-        with Serial(dev, baudrate=baudrate, timeout=2) as ser:
-            # 초기화 & 정렬
-            ser.write(b"\x1B\x40")      # ESC @ (init)
-            ser.write(b"\x1B\x61\x01")  # ESC a 1 (center)
-            ser.write(b"\x1B\x32")      # ESC 2 (기본 줄간격)
-            _try_set_density_common(ser)
+    # baudrate 목록
+    bauds = [baudrate] if baudrate > 0 else _BAUDRATES
 
-            # 이미지 래스터 전송(청크 분할)
-            _serial_write_all(ser, data, chunk=2048)
+    last_err = "알 수 없는 오류"
 
-            # 줄바꿈
-            if feed_after > 0:
-                ser.write(b"\n" * int(feed_after))
+    for port in candidates:
+        for baud in bauds:
+            try:
+                with _try_open_serial(port, baud) as ser:
+                    # ── 초기화 ──
+                    ser.write(b"\x1B\x40")       # ESC @  (init)
+                    ser.write(b"\x1B\x61\x01")   # ESC a 1 (가운데 정렬)
+                    ser.flush()
+                    time.sleep(0.05)
 
-            # 컷(부분컷)
-            if do_cut:
-                ser.write(b"\x1D\x56\x42\x00")  # GS V B 0
+                    # ── GS v 0 래스터 전송 시도 ──
+                    try:
+                        _write_chunked(ser, raster_data)
+                    except Exception:
+                        # 래스터 실패 → ESC * 재시도
+                        ser.write(b"\x1B\x40")   # 재초기화
+                        ser.flush()
+                        time.sleep(0.05)
+                        _write_chunked(ser, esc_star_data)
 
-            ser.flush()
-        return True, f"USB 인쇄 완료 (port={dev})"
-    except Exception as e:
-        return False, f"USB 출력 실패: {e}"
+                    # ── 피드 + 컷 ──
+                    if feed_after > 0:
+                        ser.write(b"\x0A" * int(feed_after))
+                    if do_cut:
+                        ser.write(b"\x1D\x56\x42\x00")  # GS V B 0 (부분컷)
+                    ser.flush()
+                    time.sleep(0.1)
+
+                return True, f"출력 완료 (port={port}, baud={baud})"
+
+            except Exception as e:
+                last_err = str(e)
+                continue   # 다음 baud 또는 다음 포트 시도
+
+    return False, f"모든 포트/baudrate 시도 실패: {last_err}"
