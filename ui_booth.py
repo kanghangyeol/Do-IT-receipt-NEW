@@ -427,13 +427,6 @@ class BoothCam(QtWidgets.QWidget):
         right.setContentsMargins(10, 10, 10, 10)
 
         # 카메라 선택
-        dev_row = QtWidgets.QHBoxLayout()
-        dev_lbl = QtWidgets.QLabel("카메라:")
-        dev_lbl.setStyleSheet("color:#888; font-size:12px;")
-        dev_row.addWidget(dev_lbl)
-        dev_row.addWidget(self.device_combo, 1)
-        right.addLayout(dev_row)
-
         # 카운트다운 + 매수 (각각 절반)
         def _lbl(text):
             l = QtWidgets.QLabel(text)
@@ -521,6 +514,9 @@ class BoothCam(QtWidgets.QWidget):
         grid.addWidget(_field_lbl("포트:"),              2, 0)
         grid.addWidget(self.printer_port_combo,           2, 1)
         grid.addWidget(self.refresh_printer_btn,          2, 2)
+
+        grid.addWidget(_field_lbl("카메라:"),            3, 0)
+        grid.addWidget(self.device_combo,                 3, 1, 1, 2)
 
         right.addLayout(grid)
 
