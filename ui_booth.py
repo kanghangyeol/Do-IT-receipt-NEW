@@ -334,27 +334,24 @@ class BoothCam(QtWidgets.QWidget):
             "background:#200a12; border-radius:6px; padding:6px;"
         )
 
-        # ── 정사각형 버튼 (120×80) ──
-        BTN_W, BTN_H = 140, 80
-
-        self.snap_btn = QtWidgets.QPushButton("📷\n촬영")
+        self.snap_btn = QtWidgets.QPushButton("📷  촬영")
         self.snap_btn.setObjectName("snapBtn")
-        self.snap_btn.setFixedSize(BTN_W, BTN_H)
+        self.snap_btn.setFixedHeight(64)
         self.snap_btn.setToolTip("사진 촬영 (Space)")
 
-        self.print_btn = QtWidgets.QPushButton("🖨\n출력")
+        self.print_btn = QtWidgets.QPushButton("🖨  출력")
         self.print_btn.setObjectName("printBtn")
-        self.print_btn.setFixedSize(BTN_W, BTN_H)
+        self.print_btn.setFixedHeight(64)
         self.print_btn.setEnabled(False)
 
-        self.reset_btn = QtWidgets.QPushButton("↺\n초기화")
+        self.reset_btn = QtWidgets.QPushButton("↺  초기화")
         self.reset_btn.setObjectName("resetBtn")
-        self.reset_btn.setFixedSize(BTN_W, BTN_H)
+        self.reset_btn.setFixedHeight(36)
 
         # 프린터 새로고침 버튼
-        self.refresh_printer_btn = QtWidgets.QPushButton("🔌\n프린터 검색")
+        self.refresh_printer_btn = QtWidgets.QPushButton("🔌 검색")
         self.refresh_printer_btn.setObjectName("smallBtn")
-        self.refresh_printer_btn.setFixedSize(BTN_W, BTN_H)
+        self.refresh_printer_btn.setFixedHeight(28)
 
         # ── 썸네일 (오른쪽 패널 상단, 세로로 2장) ──
         self.thumb_labels = []
@@ -437,14 +434,15 @@ class BoothCam(QtWidgets.QWidget):
 
         right.addWidget(self.count_label)
 
-        # 버튼 2×2 그리드
-        btn_grid = QtWidgets.QGridLayout()
-        btn_grid.setSpacing(8)
-        btn_grid.addWidget(self.snap_btn,            0, 0)
-        btn_grid.addWidget(self.reset_btn,           0, 1)
-        btn_grid.addWidget(self.print_btn,           1, 0)
-        btn_grid.addWidget(self.refresh_printer_btn, 1, 1)
-        right.addLayout(btn_grid)
+        # 촬영 + 출력 나란히
+        action_row = QtWidgets.QHBoxLayout()
+        action_row.setSpacing(8)
+        action_row.addWidget(self.snap_btn, 1)
+        action_row.addWidget(self.print_btn, 1)
+        right.addLayout(action_row)
+
+        # 초기화 (전체 너비, 얇게)
+        right.addWidget(self.reset_btn)
 
         # 구분선
         def _sep():
@@ -455,17 +453,23 @@ class BoothCam(QtWidgets.QWidget):
 
         right.addWidget(_sep())
 
-        # 설정 영역
-        msg_lbl = QtWidgets.QLabel("영수증 문구")
+        # 설정 영역 (간격 최소화)
+        msg_row = QtWidgets.QHBoxLayout()
+        msg_row.setSpacing(6)
+        msg_lbl = QtWidgets.QLabel("문구:")
         msg_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        right.addWidget(msg_lbl)
-        right.addWidget(self.short_edit)
+        msg_lbl.setFixedWidth(30)
+        msg_row.addWidget(msg_lbl)
+        msg_row.addWidget(self.short_edit, 1)
+        right.addLayout(msg_row)
 
-        logo_lbl = QtWidgets.QLabel("로고 파일")
-        logo_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
-        right.addWidget(logo_lbl)
         logo_row = QtWidgets.QHBoxLayout()
-        logo_row.addWidget(self.logo_edit)
+        logo_row.setSpacing(6)
+        logo_lbl = QtWidgets.QLabel("로고:")
+        logo_lbl.setStyleSheet("color:#6a7a9a; font-size:11px;")
+        logo_lbl.setFixedWidth(30)
+        logo_row.addWidget(logo_lbl)
+        logo_row.addWidget(self.logo_edit, 1)
         logo_row.addWidget(self.logo_btn)
         right.addLayout(logo_row)
 
@@ -479,12 +483,14 @@ class BoothCam(QtWidgets.QWidget):
         right.addLayout(printer_row)
         right.addWidget(self.chk_auto_reset)
 
-        # 프린터 포트
+        # 프린터 포트 + 검색 버튼
         port_row = QtWidgets.QHBoxLayout()
+        port_row.setSpacing(6)
         port_lbl = QtWidgets.QLabel("포트:")
         port_lbl.setStyleSheet("color:#888; font-size:12px;")
         port_row.addWidget(port_lbl)
         port_row.addWidget(self.printer_port_combo, 1)
+        port_row.addWidget(self.refresh_printer_btn)
         right.addLayout(port_row)
 
         right.addWidget(self.status)
