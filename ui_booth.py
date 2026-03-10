@@ -450,26 +450,28 @@ class BoothCam(QtWidgets.QWidget):
 
         right.addWidget(self.count_label)
 
-        # 촬영 + 출력 나란히 (정사각형)
+        # 촬영·출력·초기화·자동초기화·상태바 전체를 하나의 컨테이너에 붙여서 배치
+        btn_block = QtWidgets.QWidget()
+        btn_vbox = QtWidgets.QVBoxLayout(btn_block)
+        btn_vbox.setContentsMargins(0, 0, 0, 0)
+        btn_vbox.setSpacing(2)
+
         action_row = QtWidgets.QHBoxLayout()
         action_row.setSpacing(8)
         action_row.addWidget(self.snap_btn, 1)
         action_row.addWidget(self.print_btn, 1)
-        right.addLayout(action_row)
+        btn_vbox.addLayout(action_row)
 
-        # 초기화 + 자동초기화(오른쪽 아래) + 상태바
-        reset_container = QtWidgets.QWidget()
-        reset_vbox = QtWidgets.QVBoxLayout(reset_container)
-        reset_vbox.setContentsMargins(0, 0, 0, 0)
-        reset_vbox.setSpacing(1)
-        reset_vbox.addWidget(self.reset_btn)
+        btn_vbox.addWidget(self.reset_btn)
+
         auto_row = QtWidgets.QHBoxLayout()
         auto_row.setContentsMargins(0, 0, 0, 0)
         auto_row.addStretch()
         auto_row.addWidget(self.chk_auto_reset)
-        reset_vbox.addLayout(auto_row)
-        reset_vbox.addWidget(self.status)
-        right.addWidget(reset_container)
+        btn_vbox.addLayout(auto_row)
+
+        btn_vbox.addWidget(self.status)
+        right.addWidget(btn_block)
 
         # 구분선
         def _sep():
